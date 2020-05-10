@@ -97,13 +97,12 @@ def opt_global_inti():
     parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
     parser.add_argument('--model', type=str,default='pointnetpp' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
     parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
-    parser.add_argument('--epoch_max', type=int,default=5 ,help="epoch_max")
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
-
-    parser.add_argument('--num_gpu', type=int,default=2 ,help="num_gpu")
+    parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
+    parser.add_argument('--num_gpu', type=int,default=8,help="num_gpu")
     parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
     parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=50, help="size of the batches")
 
 
     #parser.add_argument('--decay_rate', type=float, default=1e-4, help='weight decay [default: 1e-4]')
@@ -486,6 +485,8 @@ def main():
 
         #pdb.set_trace()
         wandb.log(log_val_end)
+        if(opt.debug == True):
+            pdb.set_trace()
         scheduler.step()
 
 
