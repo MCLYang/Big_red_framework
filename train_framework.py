@@ -99,14 +99,19 @@ def opt_global_inti():
     parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
 
-    parser.add_argument('--num_gpu', type=int,default=2 ,help="num_gpu")
-    parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--num_gpu', type=int,default=8,help="num_gpu")
+    parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
     parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=48, help="size of the batches")
     parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
 
+    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
+    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
+    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
+    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
 
-    #parser.add_argument('--decay_rate', type=float, default=1e-4, help='weight decay [default: 1e-4]')
+
 
     args = parser.parse_args()
     return args
@@ -395,92 +400,93 @@ def main():
             print(key+'_train_ave: ',summery_dict[key])
         wandb.log(log_train_end)
 
-        manager_test.reset()
-        model.eval()
-        print('---------------------Validation----------------------')
-        print("Epoch: ",epoch)
-        with torch.no_grad():
-            for j, data in tqdm(enumerate(validation_loader), total=len(validation_loader), smoothing=0.9):
-                points, target = data
-                #target.shape [B,N]
-                #points.shape [B,N,C]
-                points, target = points.cuda(), target.cuda()
-                tic = time.perf_counter()
-                pred,_ = model(points)
-                toc = time.perf_counter()
-                
-                #pred.shape [B,N,2] since pred returned pass F.log_softmax
-                pred, target,points = pred.cpu(), target.cpu(),points.cpu()
-                
-                #compute loss
-                test_loss = 0
+        if(epoch % 3 == 2):
+            print('---------------------Validation----------------------')
+            manager_test.reset()
+            model.eval()
+            print("Epoch: ",epoch)
+            with torch.no_grad():
+                for j, data in tqdm(enumerate(validation_loader), total=len(validation_loader), smoothing=0.9):
+                    points, target = data
+                    #target.shape [B,N]
+                    #points.shape [B,N,C]
+                    points, target = points.cuda(), target.cuda()
+                    tic = time.perf_counter()
+                    pred,_ = model(points)
+                    toc = time.perf_counter()
+                    
+                    #pred.shape [B,N,2] since pred returned pass F.log_softmax
+                    pred, target,points = pred.cpu(), target.cpu(),points.cpu()
+                    
+                    #compute loss
+                    test_loss = 0
 
-                #pred:[B,N,2]->[B,N]
-                pred = pred.data.max(dim=2)[1]
-                #compute confusion matrix
-                cm = confusion_matrix(pred,target,num_classes =2).sum(dim=0)
-                #compute OA
-                overall_correct_site = torch.diag(cm).sum()
-                overall_reference_site = cm.sum()
-                assert overall_reference_site == opt.batch_size * opt.num_points,"Confusion_matrix computing error" 
-                oa = float(overall_correct_site/overall_reference_site)
-                
-                #compute iou
-                Biou,Fiou = mean_iou(pred,target,num_classes =2).mean(dim=0)
-                miou = (Biou+Fiou)/2
+                    #pred:[B,N,2]->[B,N]
+                    pred = pred.data.max(dim=2)[1]
+                    #compute confusion matrix
+                    cm = confusion_matrix(pred,target,num_classes =2).sum(dim=0)
+                    #compute OA
+                    overall_correct_site = torch.diag(cm).sum()
+                    overall_reference_site = cm.sum()
+                    assert overall_reference_site == opt.batch_size * opt.num_points,"Confusion_matrix computing error" 
+                    oa = float(overall_correct_site/overall_reference_site)
+                    
+                    #compute iou
+                    Biou,Fiou = mean_iou(pred,target,num_classes =2).mean(dim=0)
+                    miou = (Biou+Fiou)/2
 
-                #compute inference time complexity
-                time_complexity = toc - tic
-                
-                #compute inference storage complexsity
-                num_device = torch.cuda.device_count()
-                assert num_device == opt.num_gpu,"opt.num_gpu NOT equals torch.cuda.device_count()" 
-                temp = []
-                for k in range(num_device):
-                    temp.append(torch.cuda.memory_allocated(k))
-                RAM_usagePeak = torch.tensor(temp).float().mean()
-                #writeup logger
-                # metrics_list = ['test_loss','OA','Biou','Fiou','Miou','time_complexicity','storage_complexicity']
-                manager_test.update('loss',test_loss)
-                manager_test.update('OA',oa)
-                manager_test.update('Biou',Biou.item())
-                manager_test.update('Fiou',Fiou.item())
-                manager_test.update('Miou',miou.item())
-                manager_test.update('time_complexicity',float(1/time_complexity))
-                manager_test.update('storage_complexicity',RAM_usagePeak.item())
+                    #compute inference time complexity
+                    time_complexity = toc - tic
+                    
+                    #compute inference storage complexsity
+                    num_device = torch.cuda.device_count()
+                    assert num_device == opt.num_gpu,"opt.num_gpu NOT equals torch.cuda.device_count()" 
+                    temp = []
+                    for k in range(num_device):
+                        temp.append(torch.cuda.memory_allocated(k))
+                    RAM_usagePeak = torch.tensor(temp).float().mean()
+                    #writeup logger
+                    # metrics_list = ['test_loss','OA','Biou','Fiou','Miou','time_complexicity','storage_complexicity']
+                    manager_test.update('loss',test_loss)
+                    manager_test.update('OA',oa)
+                    manager_test.update('Biou',Biou.item())
+                    manager_test.update('Fiou',Fiou.item())
+                    manager_test.update('Miou',miou.item())
+                    manager_test.update('time_complexicity',float(1/time_complexity))
+                    manager_test.update('storage_complexicity',RAM_usagePeak.item())
 
-        
-        summery_dict = manager_test.summary()
+            
+            summery_dict = manager_test.summary()
 
-        log_val_end = {}
-        for key in summery_dict:
-            log_val_end[key+'_validation_ave'] = summery_dict[key]
-            print(key+'_validation_ave: ',summery_dict[key])
+            log_val_end = {}
+            for key in summery_dict:
+                log_val_end[key+'_validation_ave'] = summery_dict[key]
+                print(key+'_validation_ave: ',summery_dict[key])
 
-        package = dict()
-        package['state_dict'] = model
-        package['scheduler'] = scheduler
-        package['optimizer'] = optimizer
-        package['epoch'] = epoch
+            package = dict()
+            package['state_dict'] = model
+            package['scheduler'] = scheduler
+            package['optimizer'] = optimizer
+            package['epoch'] = epoch
 
-        opt_temp = vars(opt)
-        for k in opt_temp:
-            package[k] = opt_temp[k]
-        for k in log_val_end:
-            package[k] = log_val_end[k]
+            opt_temp = vars(opt)
+            for k in opt_temp:
+                package[k] = opt_temp[k]
+            for k in log_val_end:
+                package[k] = log_val_end[k]
 
-        save_root = opt.save_root+'/val_miou%.4f_Epoch%s.pth'%(package['Miou_validation_ave'],package['epoch'])
-        torch.save(package,save_root)
-
-        print('Is Best?: ',(package['Miou_validation_ave']>best_value))
-        if(package['Miou_validation_ave']>best_value):
-            best_value = package['Miou_validation_ave']
-            save_root = opt.save_root+'/best_model.pth'
+            save_root = opt.save_root+'/val_miou%.4f_Epoch%s.pth'%(package['Miou_validation_ave'],package['epoch'])
             torch.save(package,save_root)
 
-        wandb.log(log_val_end)
-        if(opt.debug == True):
-            pdb.set_trace()
+            print('Is Best?: ',(package['Miou_validation_ave']>best_value))
+            if(package['Miou_validation_ave']>best_value):
+                best_value = package['Miou_validation_ave']
+                save_root = opt.save_root+'/best_model.pth'
+                torch.save(package,save_root)
+
+            wandb.log(log_val_end)
+            if(opt.debug == True):
+                pdb.set_trace()
         scheduler.step()
 
 
