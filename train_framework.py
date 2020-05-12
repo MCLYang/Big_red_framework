@@ -52,9 +52,9 @@ def opt_global_inti():
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
 
     parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
-    parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--num_channel', type=int,default=3 ,help="num_channel")
+    parser.add_argument("--batch_size", type=int, default=4, help="size of the batches")
     parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
 
     # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
@@ -321,7 +321,7 @@ def main():
 
 
 
-    wandb.init(project="pointcloud",name=opt.model_name)
+    wandb.init(project="dgcnn_test",name=opt.model_name)
     wandb.config.update(opt)
 
     best_value = 0
@@ -396,7 +396,7 @@ def main():
             print(key+'_train_ave: ',summery_dict[key])
         wandb.log(log_train_end)
 
-        if(epoch % 3 == 2):
+        if(epoch % 3 == 0):
             print('---------------------Validation----------------------')
             manager_test.reset()
             model.eval()
