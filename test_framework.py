@@ -4,7 +4,7 @@ sys.path.append('../')
 sys.path.append('/')
 from argparse import ArgumentParser
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 import random
 import torch
 import torch.nn.parallel
@@ -92,8 +92,8 @@ def opt_global_inti():
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
     parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
 
-    parser.add_argument('--load_pretrain', type=str,default='ckpt/pointnetpp_4c',help="root load_pretrain")
-    parser.add_argument('--model', type=str,default='pointnetpp' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
+    parser.add_argument('--load_pretrain', type=str,default='ckpt/dgcnn_4c',help="root load_pretrain")
+    parser.add_argument('--model', type=str,default='dgcnn' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
 
     args = parser.parse_args()
     return args
@@ -143,25 +143,37 @@ def main():
     opt.num_channel = package['num_channel']
     opt.time = package['time'] 
     opt.epoch_ckpt = package['epoch']
-    opt.val_miou = package['Validation_ave_miou'] 
-    state_dict = convert_state_dict(para_state_dict)
 
+    # opt.val_miou = package['validation_mIoU']
+    # package.pop('validation_mIoU')
+    # package['Validation_ave_miou'] = opt.val_miou
+
+    # num_gpu = package['gpuNum']
+    # package.pop('gpuNum')
+    # package['num_gpu'] = num_gpu
+
+    save_model(package,pretrained_model_path)        
+    state_dict = convert_state_dict(para_state_dict)
 
     ckpt_,ckpt_file_name  = opt.load_pretrain.split("/")
     module_name = ckpt_+'.'+ckpt_file_name+'.'+'model'
     MODEL = importlib.import_module(module_name)
+    # print('opt.num_channel: ',opt.num_channel)
     model = MODEL.get_model(input_channel = opt.num_channel)
-    pre_model_name = MODEL.get_model_name(input_channel = opt.num_channel)
+    Model_Specification = MODEL.get_model_name(input_channel = opt.num_channel)
     print('----------------------Test Model----------------------')
     print('Root of prestrain model: ', pretrained_model_path)
     print('Model: ', opt.model)
-    print('Pretrained model name: ', pre_model_name)
+    print('Pretrained model name: ', Model_Specification)
     print('Trained Date: ',opt.time)
     print('num_channel: ',opt.num_channel)
     name = input("Edit the name or press ENTER to skip: ")
     if(name!=''):
-        package['name'] = name
-    print('Pretrained model name: ', package['name'])
+        opt.model_name = name
+    else:
+        opt.model_name = Model_Specification
+    print('Pretrained model name: ', opt.model_name)
+    package['name'] = opt.model_name
     save_model(package,pretrained_model_path)        
     # save_model(package,root,name)
 
@@ -218,7 +230,7 @@ def main():
     manager = metrics_manager(metrics_list)
 
     model.eval()
-    wandb.init(project="pointcloud",name=package['name'])
+    wandb.init(project="Test",name=package['name'])
     wandb.config.update(opt)
 
 
@@ -230,18 +242,19 @@ def main():
             #points.shape [B,N,C]
             points, target = points.cuda(), target.cuda()
             tic = time.perf_counter()
-            pred,trans_feat = model(points)
+            pred_mics = model(points)
             toc = time.perf_counter()
-            
+            #pred_mics[0] is pred
+            #pred_mics[1] is feat [only pointnet and pointnetpp has it]
 
-
-            #pred.shape [B,N,2] since pred returned pass F.log_softmax
-            pred, target,points = pred.cpu(), target.cpu(),points.cpu()
-            
             #compute loss
             test_loss = 0
 
+            #pred.shape [B,N,2] since pred returned pass F.log_softmax
+            pred, target,points = pred_mics[0].cpu(), target.cpu(),points.cpu()
+
             #pred:[B,N,2]->[B,N]
+            # pdb.set_trace()
             pred = pred.data.max(dim=2)[1]
             #compute confusion matrix
             cm = confusion_matrix(pred,target,num_classes =2).sum(dim=0)

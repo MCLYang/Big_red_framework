@@ -36,6 +36,39 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # shutil.copy('models/%s.py' % args.model, str(experiment_dir))
 # shutil.copy('models/pointnet_util.py', str(experiment_dir))
 
+def opt_global_inti():
+    parser = ArgumentParser()
+    parser.add_argument('--conda_env', type=str, default='some_name')
+    parser.add_argument('--notification_email', type=str, default='will@email.com')
+    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
+    parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
+
+    parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
+    parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
+
+    parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
+    parser.add_argument('--model', type=str,default='dgcnn' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
+    parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
+    parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
+
+    parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+    parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
+
+    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
+    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
+    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
+    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
+
+
+
+    args = parser.parse_args()
+    return args
+
+
 def save_model(package,root):
     torch.save(package,root)
 
@@ -82,40 +115,6 @@ class tag_getter(object):
         file_name = file_name[:-3]
         difficulty,location,isSingle = file_name.split("_")
         return(difficulty,location,isSingle,file_name)
-
-
-def opt_global_inti():
-    parser = ArgumentParser()
-    parser.add_argument('--conda_env', type=str, default='some_name')
-    parser.add_argument('--notification_email', type=str, default='will@email.com')
-    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
-    parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
-
-    parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
-    parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
-
-    parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
-    parser.add_argument('--model', type=str,default='pointnetpp' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
-    parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
-    parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
-
-    parser.add_argument('--num_gpu', type=int,default=8,help="num_gpu")
-    parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=48, help="size of the batches")
-    parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
-
-    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
-    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
-    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
-    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
-
-
-
-    args = parser.parse_args()
-    return args
-
 
 
 def generate_report(summery_dict,package):
@@ -199,6 +198,7 @@ def creating_new_model(opt):
     module_name = 'model.'+opt.model
     MODEL = importlib.import_module(module_name)
     model = MODEL.get_model(input_channel = opt.num_channel,is_synchoization = opt.synchonization)
+    #pdb.set_trace()
     Model_Specification = MODEL.get_model_name(input_channel = opt.num_channel)
     f_loss = MODEL.get_loss(input_channel = opt.num_channel)
 
@@ -338,22 +338,18 @@ def main():
             #training...
             optimizer.zero_grad()
             tic = time.perf_counter()
-            pred,_ = model(points)    
+            pred_mics = model(points)    
             toc = time.perf_counter()
-            #compute loss
+            #pred_mics[0] is pred
+            #pred_mics[1] is feat [only pointnet and pointnetpp has it]
 
             #For loss
-            #target.shape [B,N] ->[B*N]
-            #pred.shape [B,N,2]->[B*N,2]
-            #pdb.set_trace()
-            target_flat = target.view(-1)
-            pred_flat = pred.view(-1,2)
-            loss = f_loss(pred_flat, target_flat)
+            loss = f_loss(pred_mics, target)
             loss.backward()
             optimizer.step()
 
             #pred.shape [B,N,2] since pred returned pass F.log_softmax
-            pred, target,points = pred.cpu(), target.cpu(),points.cpu()
+            pred, target,points = pred_mics[0].cpu(), target.cpu(),points.cpu()
 
             #pred:[B,N,2]->[B,N]
             pred = pred.data.max(dim=2)[1]
@@ -412,11 +408,11 @@ def main():
                     #points.shape [B,N,C]
                     points, target = points.cuda(), target.cuda()
                     tic = time.perf_counter()
-                    pred,_ = model(points)
+                    pred_mics = model(points)
                     toc = time.perf_counter()
                     
                     #pred.shape [B,N,2] since pred returned pass F.log_softmax
-                    pred, target,points = pred.cpu(), target.cpu(),points.cpu()
+                    pred, target,points = pred_mics[0].cpu(), target.cpu(),points.cpu()
                     
                     #compute loss
                     test_loss = 0

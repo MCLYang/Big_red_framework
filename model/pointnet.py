@@ -34,6 +34,8 @@ class pointnet_loss(torch.nn.Module):
         self.weight = torch.tensor(weight).cuda()
     def forward(self, pred, target, trans_feat):
         weight = self.weight
+        target = target.view(-1)
+        pred = pred.view(-1,2)
         if(self.feature_transform == True):
             loss = F.nll_loss(pred, target, weight = weight)
             mat_diff_loss = feature_transform_regularizer(trans_feat)
@@ -213,7 +215,7 @@ class Pointnet_sem_seg(nn.Module):
         x = x.transpose(2,1).contiguous()
         x = F.log_softmax(x.view(-1,self.k), dim=-1)
         x = x.view(batchsize, n_pts, self.k)
-        return x, trans_feat
+        return [x, trans_feat]
 
 def feature_transform_regularizer(trans):
     d = trans.size()[1]
@@ -224,34 +226,7 @@ def feature_transform_regularizer(trans):
     loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2,1)) - I, dim=(1,2)))
     return loss
 
-if __name__ == '__main__':
-    sim_data = Variable(torch.rand(32,3,2500))
-    trans = STN3d()
-    out = trans(sim_data)
-    print('stn', out.size())
-    print('loss', feature_transform_regularizer(out))
 
-    sim_data_64d = Variable(torch.rand(32, 64, 2500))
-    trans = STNkd(k=64)
-    out = trans(sim_data_64d)
-    print('stn64d', out.size())
-    print('loss', feature_transform_regularizer(out))
-
-    pointfeat = PointNetfeat(global_feat=True)
-    out, _, _ = pointfeat(sim_data)
-    print('global feat', out.size())
-
-    pointfeat = PointNetfeat(global_feat=False)
-    out, _, _ = pointfeat(sim_data)
-    print('point feat', out.size())
-
-    cls = PointNetCls(k = 5)
-    out, _, _ = cls(sim_data)
-    print('class', out.size())
-
-    seg = PointNetDenseCls(k = 3)
-    out, _, _ = seg(sim_data)
-    print('seg', out.size())
 
 
 # from __future__ import print_function
