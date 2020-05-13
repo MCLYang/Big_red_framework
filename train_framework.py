@@ -98,11 +98,11 @@ def opt_global_inti():
     parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
 
-    parser.add_argument('--num_gpu', type=int,default=1,help="num_gpu")
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+    # os.environ["CUDA_VISIBLE_DEVICES"] = '1'
     parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
     parser.add_argument('--num_channel', type=int,default=5 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
     parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
     parser.add_argument('--including_ring', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
 
