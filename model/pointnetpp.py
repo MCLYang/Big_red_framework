@@ -27,8 +27,6 @@ class pointnetpp_loss(nn.Module):
     # def forward(self, pred, target, trans_feat, weight):
     def forward(self, pred, target):
         weight = self.weight
-        target = target.view(-1)
-        pred = pred.view(-1,2)
         total_loss = F.nll_loss(pred, target, weight=weight)
         return total_loss
 
@@ -76,7 +74,7 @@ class pointnet2_sem_seg_msg(nn.Module):
         x = self.conv2(x)
         x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
-        return [x, l4_points]
+        return x, l4_points
 
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))

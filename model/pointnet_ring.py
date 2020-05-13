@@ -6,15 +6,15 @@ import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
 import torch.nn.functional as F
+
 import pdb
 
 
-
-def get_model(input_channel,is_synchoization = 'BN'):
-    return(Pointnet_sem_seg(num_channel=input_channel))
+def get_model(input_channel,is_synchoization='Instance'):
+    return(Pointnet_ring_sem_seg(num_channel=input_channel))
 
 def get_model_name(input_channel):
-    return("pointnet_"+str(input_channel)+"c")
+    return("Pointnet_ring_"+str(input_channel)+"c")
 
 def get_loss(input_channel):
     return(pointnet_loss(num_channel = input_channel))
@@ -48,18 +48,6 @@ class pointnet_loss(torch.nn.Module):
             total_loss = F.nll_loss(pred, target, weight=weight)
         return total_loss
 
-
-def feature_transform_regularizer(trans):
-    #pdb.set_trace()
-    d = trans.size()[1]
-    batchsize = trans.size()[0]
-    I = torch.eye(d)[None, :, :]
-    if trans.is_cuda:
-        I = I.cuda()
-    product =  torch.bmm(trans, trans.transpose(2,1)) - I
-    product = product.cpu()
-    loss = torch.mean(torch.norm(product, dim=(1,2)))
-    return loss
 
 
 class STN3d(nn.Module):
@@ -165,7 +153,145 @@ class PointNetEncoder(nn.Module):
             self.fstn = STNkd(k=64)
 
     def forward(self, x):
+
+        B, D, N = x.size()
+        trans = self.stn(x)
+        x = x.transpose(2, 1)
+        if D >3 :
+            x, feature = x.split(3,dim=2)
+        x = torch.bmm(x, trans)
+        if D > 3:
+            x = torch.cat([x,feature],dim=2)
+        x = x.transpose(2, 1)
+        
+        x = F.relu(self.bn1(self.conv1(x)))
+
+        if self.feature_transform:
+            trans_feat = self.fstn(x)
+            x = x.transpose(2, 1)
+            x = torch.bmm(x, trans_feat)
+            x = x.transpose(2, 1)
+        else:
+            trans_feat = None
+        
+        
+        
+        #print(trans_feat.shape)
+        pointfeat = x
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.bn3(self.conv3(x))
+        x = torch.max(x, 2, keepdim=True)[0]
+        x = x.view(-1, 1024)
+        if self.global_feat:
+            return x, trans, trans_feat
+        else:
+            x = x.view(-1, 1024, 1).repeat(1, 1, N)
+            return torch.cat([x, pointfeat], 1), trans, trans_feat
+
+
+class maxpooler_global(nn.Module):
+    def __init__(self):
+        super(maxpooler_global, self).__init__()
+        self.pooler = nn.Sequential(
+                nn.Conv1d(64, 128, 1),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                nn.Conv1d(128, 1024, 1),
+                nn.BatchNorm1d(1024))
+    def forward(self,x):
+        N = x.size()[2]
+        x = self.pooler(x)
+        x = torch.max(x, 2, keepdim=True)[0]
+        x = x.view(-1, 1024)
+        x = x.view(-1, 1024, 1).repeat(1, 1, N)
+        return x
+
+
+
+class maxpooler_ring(nn.Module):
+    def __init__(self,num_ring=1):
+        super(maxpooler_ring, self).__init__()
+        self.num_ring = num_ring        
+        self.pooler_list = nn.ModuleList()
+        for i in range(num_ring):
+            self.pooler_list.append(nn.Sequential(
+                nn.Conv1d(64, 128, 1),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                nn.Conv1d(128, 1024, 1),
+                nn.BatchNorm1d(1024)))
+    def forward(self,x,ring):
+        x = x.transpose(2, 1)
+
+        # ring [B,N]
+        # x [B,N,D]
+        B,N,D = x.size()
+
         #pdb.set_trace()
+
+        #print(x.shape)
+        x_new = torch.zeros((B,N,1024)).cuda()
+
+        for i in range(self.num_ring):
+            #print(i)
+            idx = (ring==i)
+            #temp_dict[0] is bath_num
+            #temp_dict[1] is index of points
+            temp_dict = torch.where(idx ==True)
+            xi = x[idx].unsqueeze(0)
+            xi = xi.transpose(2,1)
+            #xi[1,D,M_i]->xi[1,1024,M_i]
+            xi = self.pooler_list[i](xi)
+
+            #xi[1,1024,M_i]->xi[1,M_i,1024]
+            xi = xi.transpose(2,1)
+            for j in range(B):
+                #j is current batch
+                #idx_b is current batch points index
+                idx_b = temp_dict[0] == j
+                #xi_temp is [1,M_ib,1024] s.t.M_ib<=M_i
+                xi_temp = xi[:,idx_b,:]
+                M_ib = xi_temp.shape[1]
+                #xi_temp [1,M_ib,1024]->[1,1,1024]
+                xi_temp = torch.max(xi_temp, 1, keepdim=True)[0]
+                xi_temp = xi_temp.view(-1, 1, 1024).repeat(1, M_ib,1 )
+                # pdb.set_trace()
+                batch_dict = [temp_dict[0][idx_b],temp_dict[1][idx_b]]
+                #pdb.set_trace()
+                x_new[batch_dict] = xi_temp[0]
+      
+        #(B,20000,1024) -> (B,1024,20000)
+        x_new = x_new.transpose(2,1)
+        #pdb.set_trace()
+        return x_new
+
+
+        
+
+
+
+
+        
+
+class RingEncoder(nn.Module):
+    def __init__(self, global_feat=False, feature_transform=True, channel=5,num_ring = 16):
+        super(RingEncoder, self).__init__()
+        self.channel = channel
+        self.stn = STN3d(channel)
+        self.conv1 = torch.nn.Conv1d(channel, 64, 1)
+
+        self.bn1 = nn.BatchNorm1d(64)
+
+        self.global_feat = global_feat
+        self.feature_transform = feature_transform
+        if self.feature_transform:
+            self.fstn = STNkd(k=64)
+
+        self.globalmaxpooler = maxpooler_global()
+        self.ringmaxpooler = maxpooler_ring(num_ring=num_ring)
+        
+
+    def forward(self, x,ring):
 
         B, D, N = x.size()
         trans = self.stn(x)
@@ -185,42 +311,29 @@ class PointNetEncoder(nn.Module):
             x = x.transpose(2, 1)
         else:
             trans_feat = None
-        
-        
-        #pdb.set_trace()
-        #print(trans_feat.shape)
-        pointfeat = x
-        #pdb.set_trace()
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = self.bn3(self.conv3(x))
-       # pdb.set_trace()
 
-        x = torch.max(x, 2, keepdim=True)[0]
-        #pdb.set_trace()
-        x = x.view(-1, 1024)
-        if self.global_feat:
-            return x, trans, trans_feat
-        else:
-            #pdb.set_trace()
-            x = x.view(-1, 1024, 1).repeat(1, 1, N)
-            #pdb.set_trace()
+        x1 = self.globalmaxpooler(x)
+        x2 = self.ringmaxpooler(x,ring)
+        # return torch.cat([x1,x], 1), trans, trans_feat
 
-            return torch.cat([x, pointfeat], 1), trans, trans_feat
+        return torch.cat([x1,x2, x], 1), trans, trans_feat
 
 
 
-class Pointnet_sem_seg(nn.Module):
-    def __init__(self, k = 2, feature_transform=False,num_channel = 5):
-        super(Pointnet_sem_seg, self).__init__()
+
+class Pointnet_ring_sem_seg(nn.Module):
+    def __init__(self, k = 2, feature_transform=True,num_channel = 4,num_ring=16):
+        super(Pointnet_ring_sem_seg, self).__init__()
         self.k = k
-        if(num_channel<=3):
-            feature_transform = False
-        else:
-            feature_transform = True
+        feature_transform = True
+        self.num_ring = num_ring
         self.feature_transform=feature_transform
         self.num_channel = num_channel
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=self.feature_transform, channel=self.num_channel )
-        self.conv1 = torch.nn.Conv1d(1088, 512, 1)
+        self.feat = RingEncoder(global_feat=False, feature_transform=self.feature_transform, channel=self.num_channel,num_ring = 16)
+
+        # self.conv1 = torch.nn.Conv1d(1088, 512, 1)
+        self.conv1 = torch.nn.Conv1d(1088+1024, 512, 1)
+
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
         self.conv4 = torch.nn.Conv1d(128, self.k, 1)
@@ -228,11 +341,18 @@ class Pointnet_sem_seg(nn.Module):
         self.bn2 = nn.BatchNorm1d(256)
         self.bn3 = nn.BatchNorm1d(128)
     def forward(self, x):
+        #pdb.set_trace()
+        ring  = x[:,:,self.num_channel]
+        x = x[:,:,:self.num_channel]
+
         x = x.transpose(2, 1)
         batchsize = x.size()[0]
         n_pts = x.size()[2]
-        x, trans, trans_feat = self.feat(x)
-        #print(x.shape)
+
+        x, trans, trans_feat = self.feat(x,ring)
+        #x is [B,N,1088] is pointnetEncoder
+        #x is [B,N,1088+1024] is RingEncoder
+
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
@@ -240,15 +360,18 @@ class Pointnet_sem_seg(nn.Module):
         x = x.transpose(2,1).contiguous()
         x = F.log_softmax(x.view(-1,self.k), dim=-1)
         x = x.view(batchsize, n_pts, self.k)
-        return [x, trans_feat]
+        return x, trans_feat
 
 def feature_transform_regularizer(trans):
+    #pdb.set_trace()
     d = trans.size()[1]
     batchsize = trans.size()[0]
     I = torch.eye(d)[None, :, :]
     if trans.is_cuda:
         I = I.cuda()
-    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2,1)) - I, dim=(1,2)))
+    product =  torch.bmm(trans, trans.transpose(2,1)) - I
+    product = product.cpu()
+    loss = torch.mean(torch.norm(product, dim=(1,2)))
     return loss
 
 if __name__ == '__main__':
