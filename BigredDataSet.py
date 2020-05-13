@@ -19,7 +19,8 @@ class BigredDataSet():
                  is_validation=False,
                  is_test=False,
                  num_channel=5,
-		         test_code = False
+		         test_code = False,
+                 including_ring = True
                  ):
         assert (num_channel >= 3), "num_channel must be equals or greater than 3. XYZ must be included!"
 
@@ -61,8 +62,8 @@ class BigredDataSet():
                         n_frame = np.array(f['xyz'][:train_tail, :, :]).shape[0]
                         n_points = np.array(f['xyz'][:train_tail, :, :]).shape[1]
                         current_point.append(np.array(f['xyz'][:train_tail, :, :]))
-                        current_point.append(np.array(f['laserID'][:train_tail, :]).reshape(n_frame, n_points, 1))
                         current_point.append(np.array(f['intensity'][:train_tail, :]).reshape(n_frame, n_points, 1))
+                        current_point.append(np.array(f['laserID'][:train_tail, :]).reshape(n_frame, n_points, 1))
                         current_point = np.concatenate(current_point, axis=2)
                         lableset.append(np.array(f['label'][:train_tail, :]))
                         pointset.append(current_point)
@@ -76,9 +77,10 @@ class BigredDataSet():
                         n_points = np.array(f['xyz'][train_tail:validation_tail, :, :]).shape[1]
                         current_point.append(np.array(f['xyz'][train_tail:validation_tail, :, :]))
                         current_point.append(
-                            np.array(f['laserID'][train_tail:validation_tail, :]).reshape(n_frame, n_points, 1))
-                        current_point.append(
                             np.array(f['intensity'][train_tail:validation_tail, :]).reshape(n_frame, n_points, 1))
+                        current_point.append(
+                            np.array(f['laserID'][train_tail:validation_tail, :]).reshape(n_frame, n_points, 1))
+
                         current_point = np.concatenate(current_point, axis=2)
                         lableset.append(np.array(f['label'][train_tail:validation_tail, :]))
                         pointset.append(current_point)
@@ -93,10 +95,9 @@ class BigredDataSet():
                         #print(n_points,n_frame)
                         current_point.append(np.array(f['xyz'][validation_tail:test_tail, :, :]))
                         current_point.append(
-                            np.array(f['laserID'][validation_tail:test_tail, :]).reshape(n_frame, n_points, 1))
-                        current_point.append(
                             np.array(f['intensity'][validation_tail:test_tail, :]).reshape(n_frame, n_points, 1))
-                        
+                        current_point.append(
+                            np.array(f['laserID'][validation_tail:test_tail, :]).reshape(n_frame, n_points, 1))
 
                         current_point = np.concatenate(current_point, axis=2)
                         lableset.append(np.array(f['label'][validation_tail:test_tail, :]))
@@ -127,9 +128,18 @@ class BigredDataSet():
         self.result_sheet = result_sheet
 
 
+        #pdb.set_trace()
         self.point_set = np.concatenate(pointset, axis=0)
         self.label_set = np.concatenate(lableset, axis=0)
-        self.point_set = self.point_set[:, :, :num_channel]
+        if(including_ring == False):
+            self.point_set = self.point_set[:, :, 0:num_channel]
+        
+        else:
+            temp = list(range(num_channel))
+            temp.append(4)
+            self.point_set = self.point_set[:, :, temp]
+        
+        
         self.num_channel = num_channel
         print("num_channel:", num_channel)
         print("point_set:", self.point_set.shape)
