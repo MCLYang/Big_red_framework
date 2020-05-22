@@ -6,16 +6,16 @@ import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
 import torch.nn.functional as F
-
+import torch.multiprocessing as mp
 import pdb
 
+mp.set_start_method('spawn', force=True)
 
 def get_model(input_channel,is_synchoization='Instance'):
-    return(Pointnet_ring_sem_seg(num_channel=input_channel))
+    return(Pointnet_ring_light_sem_seg(num_channel=input_channel))
 
 def get_model_name(input_channel):
-    return("Pointnet_ring_"+str(input_channel)+"c")
-
+    return("Pointnet_ring_light"+str(input_channel)+"c_localDist")
 def get_loss(input_channel):
     return(pointnet_loss(num_channel = input_channel))
 
@@ -199,74 +199,21 @@ class maxpooler_global(nn.Module):
                 nn.Conv1d(128, 1024, 1),
                 nn.BatchNorm1d(1024))
     def forward(self,x):
+        #[B,D,N]
         N = x.size()[2]
         x = self.pooler(x)
+        #pdb.set_trace()
+        # x torch.Size([B, 1024, N]) -> torch.Size([B, 1024, 1])
         x = torch.max(x, 2, keepdim=True)[0]
+        # x torch.Size([B, 1024, 1] -> torch.Size([B, 1024])
         x = x.view(-1, 1024)
+        # torch.Size([B, 1024]) -> torch.Size([B, 1024, N])
         x = x.view(-1, 1024, 1).repeat(1, 1, N)
         return x
 
 
 
-# class maxpooler_ring(nn.Module):
-#     def __init__(self,num_ring=1):
-#         super(maxpooler_ring, self).__init__()
-#         self.num_ring = num_ring        
-#         self.pooler_list = nn.ModuleList()
-#         for i in range(num_ring):
-#             self.pooler_list.append(nn.Sequential(
-#                 nn.Conv1d(64, 128, 1),
-#                 nn.BatchNorm1d(128),
-#                 nn.ReLU(),
-#                 nn.Conv1d(128, 1024, 1),
-#                 nn.BatchNorm1d(1024)))
-#     def forward(self,x,ring):
-#         x = x.transpose(2, 1)
 
-#         # ring [B,N]
-#         # x [B,N,D]
-#         B,N,D = x.size()
-
-#         #pdb.set_trace()
-
-#         #print(x.shape)
-#         x_new = torch.zeros((B,N,1024)).cuda()
-
-#         for i in range(self.num_ring):
-#             #print(i)
-#             idx = (ring==i)
-#             #temp_dict[0] is bath_num
-#             #temp_dict[1] is index of points
-#             #len(temp_dict[0]) == len(temp_dict[1]) true
-#             #len(temp_dict[0]) == number of points in that ring
-#             temp_dict = torch.where(idx ==True)
-#             xi = x[idx].unsqueeze(0)
-#             xi = xi.transpose(2,1)
-
-#             #xi[1,D,M_i]->xi[1,1024,M_i]
-#             xi = self.pooler_list[i](xi)
-
-#             #xi[1,1024,M_i]->xi[1,M_i,1024]
-#             xi = xi.transpose(2,1)
-#             for j in range(B):
-#                 #j is current batch
-#                 #idx_b is current batch points index
-#                 idx_b = temp_dict[0] == j
-#                 #xi_temp is [1,M_ib,1024] s.t.M_ib<=M_i
-#                 xi_temp = xi[:,idx_b,:]
-#                 M_ib = xi_temp.shape[1]
-#                 #xi_temp [1,M_ib,1024]->[1,1,1024]
-#                 xi_temp = torch.max(xi_temp, 1, keepdim=True)[0]
-#                 xi_temp = xi_temp.view(-1, 1, 1024).repeat(1, M_ib,1 )
-#                 # pdb.set_trace()
-#                 batch_dict = [temp_dict[0][idx_b],temp_dict[1][idx_b]]
-#                 #pdb.set_trace()
-#                 x_new[batch_dict] = xi_temp[0]
-      
-#         #(B,20000,1024) -> (B,1024,20000)
-#         x_new = x_new.transpose(2,1)
-#         #pdb.set_trace()
-#         return x_new
 
 
 class maxpooler_ring(nn.Module):
@@ -277,60 +224,167 @@ class maxpooler_ring(nn.Module):
         for i in range(num_ring):
             self.pooler_list.append(nn.Sequential(
                 nn.Conv1d(64, 128, 1),
-                nn.BatchNorm1d(128)
+                nn.BatchNorm1d(128),
                 ))
+        self.processed = 0
+        self.num_process = 1
+        self.rank = 0
+
     def forward(self,x,ring):
         x = x.transpose(2, 1)
 
         # ring [B,N]
         # x [B,N,D]
         B,N,D = x.size()
+        # x [B,N,D]->[B*N,D+2],cat the ring and batch_num to each point
+        x = torch.cat((x,ring.unsqueeze(2),ring.unsqueeze(2)),dim=2)
+        for b in range(B):
+            x[b,:,-1] = b
 
-        #pdb.set_trace()
+        _,_,D = x.size()
+        # x [B,N,D]->[B*N,D]
+        x = x.view(-1,D)
+        # pdb.set_trace()
+        # ring[B,N]->ring[B*N]
+        ring = ring.view(-1,)
+        convert_idx= ring.sort()[1]
+        reserv_idx = convert_idx.sort()[1]
+        #1.sort x by ring
+        x = torch.index_select(x,0,convert_idx)
+        #2.sort x by batch ring-wise
+        #find the endpoint for each ring
+        number_sheet,_,bin_sheet = torch.unique(ring, sorted=True, return_inverse=True, return_counts=True, dim=None)
+        ring_endpoint_dict = {}
+        str_point_idx = 0
+        for k in range(len(number_sheet)):
+            if(k==0):
+                str_point_idx = torch.tensor(0).cuda()
+            else:
+                str_point_idx = end_point_idx
+            end_point_idx = (bin_sheet[:k+1]).sum()
 
-        #print(x.shape)
-        x_new = torch.zeros((B,N,128)).cuda()
+            ring_endpoint_dict[int(number_sheet[k])] = [str_point_idx,end_point_idx]
 
-        for i in range(self.num_ring):
-            #print(i)
-            idx = (ring==i)
-            #temp_dict[0] is bath_num
-            #temp_dict[1] is index of points
-            #len(temp_dict[0]) == len(temp_dict[1]) true
-            #len(temp_dict[0]) == number of points in that ring
-            temp_dict = torch.where(idx ==True)
-            xi = x[idx].unsqueeze(0)
-            xi = xi.transpose(2,1)
+        #track each batch endpoint on the corresponding ring
+        #Here we use multiprocess technique to accelerate, sort xi in each subprocess
+        x.share_memory_()
+        self.num_process = 2
 
-            #xi[1,D,M_i]->xi[1,1024,M_i]
-            xi = self.pooler_list[i](xi)
+        #pool
+        #pool = mp.Pool(processes=2)
+        #spawn
+        x_new = mp.spawn(self.train_ring, nprocs=self.num_process, args=(x,ring_endpoint_dict))
 
-            #xi[1,1024,M_i]->xi[1,M_i,1024]
-            xi = xi.transpose(2,1)
-            for j in range(B):
-                #j is current batch
-                #idx_b is current batch points index
-                idx_b = temp_dict[0] == j
-                #xi_temp is [1,M_ib,1024] s.t.M_ib<=M_i
-                xi_temp = xi[:,idx_b,:]
-                M_ib = xi_temp.shape[1]
-                #xi_temp [1,M_ib,1024]->[1,1,1024]
-                xi_temp = torch.max(xi_temp, 1, keepdim=True)[0]
-                xi_temp = xi_temp.view(-1, 1, 128).repeat(1, M_ib,1 )
-                # pdb.set_trace()
-                batch_dict = [temp_dict[0][idx_b],temp_dict[1][idx_b]]
-                #pdb.set_trace()
-                x_new[batch_dict] = xi_temp[0]
-      
-        #(B,20000,1024) -> (B,1024,20000)
+        # x_new = [pool.apply(self.train_ring, (x[ring_endpoint_dict[key][0]:ring_endpoint_dict[key][1],:],key))  for key in ring_endpoint_dict]
+
+        processes = []
+        for i in range(self.num_process): 
+            p = mp.Process(target=self.train_ring,args=(i,x,ring_endpoint_dict))
+            p.start()
+            processes.append(p)
+        for p in processes: p.join()
+
+
+
+
+        x_new = torch.cat(x_new,dim=0)
+        #x_new [B*N,128]
+        x_new = torch.index_select(x_new,0,reserv_idx)
+        x_new = x_new.view(B,N,128)
+        #(B,N,128) -> (B,128,20000)
         x_new = x_new.transpose(2,1)
+        return x_new
+
+    def train_ring(self,process_index,x,ring_endpoint_dict):
+        #access each ring
+        #key is num_ring
+        #xi is [m_i,D]
+
+        # self.processed
+
+        key = self.rank * self.num_process + process_index
+        self.rank = key//self.num_process
+
+        key = process_index
+        xi = x[ring_endpoint_dict[key][0]:ring_endpoint_dict[key][1],:]
+
+        reserv_idx_batch_dict = {}
+        batch_endpoint_dict = {}
+        batch_tensor = xi[:,-1]
         #pdb.set_trace()
-        return x_new        
+        convert_idx_batch= batch_tensor.sort()[1]
+        reserv_idx_batch = convert_idx_batch.sort()[1]
+        reserv_idx_batch_dict[key] = reserv_idx_batch
 
 
+        xi =torch.index_select(xi,0,convert_idx_batch)
 
 
+        #tracking the batch end point
+        number_sheet,_,bin_sheet = torch.unique(batch_tensor.sort()[0], sorted=True, return_inverse=True, return_counts=True, dim=None)
+        str_point_idx = 0
+        for k in range(len(number_sheet)):
+            if(k==0):
+                str_point_idx = torch.tensor(0).cuda()
+            else:
+                str_point_idx = end_point_idx
+            end_point_idx = (bin_sheet[:k+1]).sum()
+
+            batch_endpoint_dict[int(number_sheet[k])] = [str_point_idx,end_point_idx]
+
+
+        #start training
+        #pdb.set_trace()
+        xi = torch.index_select(xi,0,convert_idx_batch)
+        # pdb.set_trace()
+
+        xi = xi[:,:-2].unsqueeze(0)
+        xi  = xi.transpose(2,1)
+
+        #xi[1,D,M_i]->xi[1,1024,M_i]
+        #pdb.set_trace()
+
+        #multiprecess
+        # pool = mp.Pool(processes=2)
+
+        xi = self.pooler_list[int(key)](xi)
+
+        #xi[1,128,M_i]->xi[M_i,128]
+        #pdb.set_trace()
+
+        #pdb.set_trace()
+        xi = xi.squeeze(0).T
+        M_i =xi.shape[0]
+
+        xi_new = []
+        for k in batch_endpoint_dict:
+            
+            startpoint_mi = batch_endpoint_dict[k][0]
+            endpoint_mi  = batch_endpoint_dict[k][1]
+            xi_temp = xi[startpoint_mi:endpoint_mi,:]
+
+            M_ib = xi_temp.shape[0]
+            # pdb.set_trace()
+            # xi_temp torch.Size([M_ib, 128])->torch.Size([1, 128])
+            xi_temp = torch.max(xi_temp, 0, keepdim=True)[0]
+            
+            # torch.Size([1, 128]) -> torch.Size([M_ib, 128])
+            #pdb.set_trace()
+            xi_temp = xi_temp.repeat (M_ib,1)
+            #pdb.set_trace()
+            xi_new.append(xi_temp)
         
+        #reverse the batch order back to the orginal
+        xi_new = torch.cat(xi_new,dim=0)
+        #xi_new [M_i,128]
+        #pdb.set_trace()
+        xi_new = torch.index_select(xi_new,0,reserv_idx_batch)
+        return xi_new
+
+
+
+
+
 
 class RingEncoder(nn.Module):
     def __init__(self, global_feat=False, feature_transform=True, channel=5,num_ring = 16):
@@ -380,9 +434,9 @@ class RingEncoder(nn.Module):
 
 
 
-class Pointnet_ring_sem_seg(nn.Module):
+class Pointnet_ring_light_sem_seg(nn.Module):
     def __init__(self, k = 2, feature_transform=True,num_channel = 4,num_ring=16):
-        super(Pointnet_ring_sem_seg, self).__init__()
+        super(Pointnet_ring_light_sem_seg, self).__init__()
         self.k = k
         feature_transform = True
         self.num_ring = num_ring

@@ -88,12 +88,15 @@ def opt_global_inti():
     parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
 
     parser.add_argument('--phase', type=str,default='test' ,help="root load_pretrain")
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+
     parser.add_argument('--num_channel', type=int,default=5 ,help="num_channel")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
     parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
 
-    parser.add_argument('--load_pretrain', type=str,default='ckpt/dgcnn_4c',help="root load_pretrain")
-    parser.add_argument('--model', type=str,default='dgcnn' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
+    parser.add_argument('--load_pretrain', type=str,default='ckpt/Pointnet_ring_light4c',help="root load_pretrain")
+    parser.add_argument('--model', type=str,default='Pointnet_ring_light' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
+    parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=True ,help="is task for debugging?False for load entire dataset")
 
     args = parser.parse_args()
     return args
@@ -104,7 +107,7 @@ def save_model(package,root):
 def generate_report(summery_dict,package):
     save_sheet=[]
     save_sheet.append(['name',package['name']])
-    save_sheet.append(['validation_miou',package['Validation_ave_miou']])
+    save_sheet.append(['validation_miou',package['Miou_validation_ave']])
     save_sheet.append(['test_miou',summery_dict['Miou']])
     save_sheet.append(['Biou',summery_dict['Biou']])
     save_sheet.append(['Fiou',summery_dict['Fiou']])
@@ -174,7 +177,8 @@ def main():
         opt.model_name = Model_Specification
     print('Pretrained model name: ', opt.model_name)
     package['name'] = opt.model_name
-    save_model(package,pretrained_model_path)        
+    save_model(package,pretrained_model_path)       
+    pdb.set_trace() 
     # save_model(package,root,name)
 
 
@@ -203,7 +207,8 @@ def main():
         is_validation=False,
         is_test=True,
         num_channel = opt.num_channel,
-        test_code = opt.debug)
+        test_code = opt.debug,
+        including_ring = opt.including_ring)
     result_sheet = test_dataset.result_sheet
     file_dict= test_dataset.file_dict
     tag_Getter = tag_getter(file_dict)

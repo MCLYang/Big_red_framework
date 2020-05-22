@@ -27,6 +27,11 @@ import pandas as pd
 import importlib
 import shutil
 from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+
+# from apex import amp
+# import apex
+
 
 # import ckpt
 
@@ -34,6 +39,57 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # MODEL = importlib.import_module(args.model)
 # shutil.copy('models/%s.py' % args.model, str(experiment_dir))
 # shutil.copy('models/pointnet_util.py', str(experiment_dir))
+
+
+
+def opt_global_inti():
+    parser = ArgumentParser()
+    parser.add_argument('--conda_env', type=str, default='some_name')
+    parser.add_argument('--notification_email', type=str, default='will@email.com')
+    # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
+    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
+
+    parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
+
+    parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
+    parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
+
+    parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
+    parser.add_argument('--synchonization', type=str,default='BN' ,help="[BN,BN_syn,Instance]")
+    parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
+
+    parser.add_argument('--num_gpu', type=int,default=1,help="num_gpu")
+    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    parser.add_argument('--num_channel', type=int,default=5,help="num_channel")
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument('--epoch_max', type=int,default=10,help="epoch_max")
+    # parser.add_argument('--wd_project', type=str,default="point_ring_light_vs_pointnet5c_simpledataset",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=True ,help="is task for debugging?False for load entire dataset")
+
+    #Pointnet_ring_light4c_upsample+groupConv
+
+    parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--sort_data', type=lambda x: (str(x).lower() == 'true'),default=True ,help="sort each frame by ring")
+
+    parser.add_argument('--apex', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--opt_level', default='O2',type=str, metavar='N')
+
+    # Pointnet_ringDP
+
+
+    #multiprocess
+    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
+    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
+    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
+    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
+
+
+
+    args = parser.parse_args()
+    return args
 
 def save_model(package,root):
     torch.save(package,root)
@@ -47,6 +103,7 @@ def setSeed(seed = 2):
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
+    
 
 def convert_state_dict(state_dict):
     if not next(iter(state_dict)).startswith("module."):
@@ -81,43 +138,6 @@ class tag_getter(object):
         file_name = file_name[:-3]
         difficulty,location,isSingle = file_name.split("_")
         return(difficulty,location,isSingle,file_name)
-
-
-def opt_global_inti():
-    parser = ArgumentParser()
-    parser.add_argument('--conda_env', type=str, default='some_name')
-    parser.add_argument('--notification_email', type=str, default='will@email.com')
-    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
-    parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
-
-    parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
-    parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
-
-    parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
-    parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring]")
-    parser.add_argument('--synchonization', type=str,default='Instance' ,help="[BN,BN_syn,Instance]")
-    parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
-
-    parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
-    # os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-    parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument('--num_channel', type=int,default=5 ,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
-    parser.add_argument('--epoch_max', type=int,default=125 ,help="epoch_max")
-    parser.add_argument('--including_ring', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
-
-
-    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
-    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
-    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
-    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
-
-
-
-    args = parser.parse_args()
-    return args
-
 
 
 def generate_report(summery_dict,package):
@@ -216,12 +236,19 @@ def creating_new_model(opt):
     else:
         opt.model_name = Model_Specification
     print('Model name: ', opt.model_name)
-    model = torch.nn.DataParallel(model)
+
+    # os.environ['MASTER_ADDR'] = '10.57.23.164'
+    # os.environ['MASTER_PORT'] = '66666666'  
+    # dist.init_process_group(                                   
+    # backend='nccl',                                         
+    # init_method='env://',                                   
+    # world_size=2,                              
+    # rank=0)     
+
+    # model = DDP(model)
+
 
     print('----------------------Configure optimizer and scheduler----------------------')
-    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
-
     experiment_dir = Path('ckpt/')
     experiment_dir.mkdir(exist_ok=True)
     experiment_dir = experiment_dir.joinpath(opt.model_name)
@@ -233,9 +260,29 @@ def creating_new_model(opt):
     experiment_dir.mkdir(exist_ok=True)
     opt.save_root = str(experiment_dir)
 
-    model.cuda()
-    # f_loss.cuda()
+    if(opt.apex==True):
+        # model = apex.parallel.convert_syncbn_model(model)
+        model.cuda()
+        optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O2")
+        model = torch.nn.DataParallel(model,device_ids =[0,1])
+    else:
+        # model = apex.parallel.convert_syncbn_model(model)
+        model.cuda()
+        optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+        model = torch.nn.DataParallel(model)
+
     return opt,model,f_loss,optimizer,scheduler,opt.save_root
+
+
+
+# def creating_new_model(point_set,label_set):
+#     #point_set [N,M,D]
+
+
+
 
 
 
@@ -264,6 +311,7 @@ def main():
     print('Phase: ', opt.phase)
     print('debug: ', opt.debug)
 
+    #pdb.set_trace()
 
     train_dataset = BigredDataSet(
         root=opt.dataset_root,
@@ -276,6 +324,8 @@ def main():
         )
 
     f_loss.load_weight(train_dataset.labelweights)
+
+    # pdb.set_trace()
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -327,20 +377,21 @@ def main():
 
 
 
-    wandb.init(project="point_ring_test",name=opt.model_name)
+    wandb.init(project=opt.wd_project,name=opt.model_name)
     wandb.config.update(opt)
 
     best_value = 0
     for epoch in range(opt.epoch_ckpt,opt.epoch_max):
         manager_train.reset()
         model.train()
+        tic_epoch = time.perf_counter()
         print('---------------------Training----------------------')
         print("Epoch: ",epoch)
         for i, data in tqdm(enumerate(train_loader), total=len(train_loader), smoothing=0.9):
             points, target = data
             #target.shape [B,N]
             #points.shape [B,N,C]
-            points, target = points.cuda(), target.cuda()
+            points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
             #training...
             optimizer.zero_grad()
             tic = time.perf_counter()
@@ -353,8 +404,13 @@ def main():
             #pred.shape [B,N,2]->[B*N,2]
             #pdb.set_trace()
             
-            loss = f_loss(pred_mics, target)            
-            loss.backward()
+            loss = f_loss(pred_mics, target)   
+            if(opt.apex):
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
+
             optimizer.step()
 
             #pred.shape [B,N,2] since pred returned pass F.log_softmax
@@ -388,14 +444,17 @@ def main():
             manager_train.update('time_complexicity',float(1/time_complexity))
             manager_train.update('storage_complexicity',RAM_usagePeak.item())
 
-            log_dict = {'loss':loss.item(),
-                        'Biou':Biou.item(),
-                        'Fiou':Fiou.item(),
-                        'Miou':miou.item(),
-                        'time_complexicity':float(1/time_complexity),
-                        'storage_complexicity':RAM_usagePeak.item()
+            log_dict = {'loss_online':loss.item(),
+                        'Biou_online':Biou.item(),
+                        'Fiou_online':Fiou.item(),
+                        'Miou_online':miou.item(),
+                        'time_complexicity_online':float(1/time_complexity),
+                        'storage_complexicity_online':RAM_usagePeak.item()
                         }
             wandb.log(log_dict)
+
+        toc_epoch = time.perf_counter()
+        time_tensor = toc_epoch-tic_epoch
 
 
         summery_dict = manager_train.summary()
@@ -403,9 +462,11 @@ def main():
         for key in summery_dict:
             log_train_end[key+'_train_ave'] = summery_dict[key]
             print(key+'_train_ave: ',summery_dict[key])
+        
+        log_train_end['Time_PerEpoch'] = time_tensor
         wandb.log(log_train_end)
 
-        if(epoch % 3 == 2):
+        if(epoch % 10 == 9):
             print('---------------------Validation----------------------')
             manager_test.reset()
             model.eval()

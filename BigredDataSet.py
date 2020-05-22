@@ -36,7 +36,7 @@ class BigredDataSet():
         laserID_set = []
         intensity_set = []
 
-        with open(os.path.join(root, "all_files.txt"), 'r') as f:
+        with open(os.path.join(root, "simple.txt"), 'r') as f:
             data_list = [x.split('/')[-1] for x in f.read().split('\n')[:-1]]
 
         # data_list = data_list[:1]
@@ -53,9 +53,9 @@ class BigredDataSet():
                             validation_tail = int(np.array(f['label']).shape[0] * 0.9)
                             test_tail = int(np.array(f['label']).shape[0] * 1)
                     if(self.test_code == True):
-                            train_tail = int(np.array(f['label']).shape[0] * 0.001)
-                            validation_tail = int(np.array(f['label']).shape[0] * 0.002)
-                            test_tail = int(np.array(f['label']).shape[0] * 0.003)
+                            train_tail = int(np.array(f['label']).shape[0] * 0.01)
+                            validation_tail = int(np.array(f['label']).shape[0] * 0.02)
+                            test_tail = int(np.array(f['label']).shape[0] * 0.03)
                     current_point = []
                     if (self.is_train == True and self.is_validation == False and self.is_test == False):
                         print("Loading Training Data...")
