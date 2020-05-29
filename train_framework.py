@@ -48,37 +48,45 @@ def opt_global_inti():
     parser.add_argument('--notification_email', type=str, default='will@email.com')
     # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
     parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
+    parser.add_argument('--apex', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--opt_level', default='O2',type=str, metavar='N')
 
     parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
 
     parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
 
+    parser.add_argument('--wandb_history', type=lambda x: (str(x).lower() == 'true'),default=False ,help="load wandb history")
+    parser.add_argument('--wandb_id', type=str,default='gufengy/point_ring_light_vs_pointnet5c_simpledataset/3891crah',help="")
+    parser.add_argument('--wandb_file', type=str,default='val_miou0.8124_Epoch109.pth',help="")
+
+    parser.add_argument('--unsave_epoch', type=int,default=0,help="")
     parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
     parser.add_argument('--synchonization', type=str,default='BN' ,help="[BN,BN_syn,Instance]")
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
-
-    parser.add_argument('--num_gpu', type=int,default=1,help="num_gpu")
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-    parser.add_argument('--num_channel', type=int,default=5,help="num_channel")
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
-    parser.add_argument('--epoch_max', type=int,default=10,help="epoch_max")
-    # parser.add_argument('--wd_project', type=str,default="point_ring_light_vs_pointnet5c_simpledataset",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
-    parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
-    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=True ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--epoch_max', type=int,default=500,help="epoch_max")
+    # parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    # parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
 
     #Pointnet_ring_light4c_upsample+groupConv
-
-    parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--num_gpu', type=int,default=1,help="num_gpu")
+    parser.add_argument('--num_channel', type=int,default=4,help="num_channel")
+    parser.add_argument('--model', type=str,default='pointnetpp' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument('--sort_data', type=lambda x: (str(x).lower() == 'true'),default=True ,help="sort each frame by ring")
+    parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
+    parser.add_argument('--wd_project', type=str,default="Complex_based_training",help="")
+    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
 
-    parser.add_argument('--apex', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument('--opt_level', default='O2',type=str, metavar='N')
+
+
+    # os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
+
+
+
+
 
     # Pointnet_ringDP
-
-
     #multiprocess
     # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
     # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
@@ -170,47 +178,69 @@ def generate_report(summery_dict,package):
 
 
 def load_pretrained(opt):
-    print('----------------------loading Pretrained----------------------')
-    pretrained_model_path = os.path.join(opt.load_pretrain,'best_model.pth')
+    print('---------------------load_pretrained----------------------')
+    pretrained_model_path = os.path.join(opt.load_pretrain,'val_miou0.8188_Epoch119.pth')
     package = torch.load(pretrained_model_path)
     para_state_dict = package['state_dict']
     opt.num_channel = package['num_channel']
     opt.time = package['time'] 
     opt.epoch_ckpt = package['epoch']
-    opt.val_miou = package['Validation_ave_miou'] 
+    opt.val_miou = package['Miou_validation_ave']
+
+    scheduler = package['scheduler']
+
     state_dict = convert_state_dict(para_state_dict)
     ckpt_,ckpt_file_name  = opt.load_pretrain.split("/")
     module_name = ckpt_+'.'+ckpt_file_name+'.'+'model'
     MODEL = importlib.import_module(module_name)
     model = MODEL.get_model(input_channel = opt.num_channel)
+    model.load_state_dict(state_dict)
+
+
     Model_Specification = MODEL.get_model_name(input_channel = opt.num_channel)
     f_loss = MODEL.get_loss(input_channel = opt.num_channel)
-    opt.model = Model_Specification[:-3]
+    opt.model_name = package['model_name']
 
 
     print('----------------------Model Info----------------------')
     print('Root of prestrain model: ', pretrained_model_path)
     print('Model: ', opt.model)
     print('Model Specification: ', Model_Specification)
-    print('Trained Date: ',opt.time)
-    print('num_channel: ',opt.num_channel)
-    name = input("Edit the name or press ENTER to skip: ")
-    if(name!=''):
-        package['name'] = name
-    print('Pretrained model name: ', package['name'])
-    save_model(package,pretrained_model_path)     
-    model.load_state_dict(state_dict)
-    model = torch.nn.DataParallel(model)
-    model.cuda()
-    f_loss.cuda()
-
+    print('Trained Date:',opt.time)
+    print('num_channel:',opt.num_channel)
+    print('Model name:',opt.model_name)
     print('----------------------Configure optimizer and scheduler----------------------')
-    optimizer = (package['optimizer'])
-    scheduler = (package['scheduler'])
+
+
+    experiment_dir = Path('ckpt/')
+    experiment_dir.mkdir(exist_ok=True)
+    experiment_dir = experiment_dir.joinpath(opt.model_name)
+    experiment_dir.mkdir(exist_ok=True)
+    shutil.copy('model/%s.py' % opt.model, str(experiment_dir))
+    shutil.move(os.path.join(str(experiment_dir), '%s.py'% opt.model), 
+                os.path.join(str(experiment_dir), 'model.py'))
+    experiment_dir = experiment_dir.joinpath('saves')
+    experiment_dir.mkdir(exist_ok=True)
+    opt.save_root = str(experiment_dir)
+
+    if(opt.apex==True):
+        # model = apex.parallel.convert_syncbn_model(model)
+        model.cuda()
+        f_loss.cuda()
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O2")
+        model = torch.nn.DataParallel(model,device_ids =[0,1])
+    else:
+        # model = apex.parallel.convert_syncbn_model(model)
+        model.cuda()
+        f_loss.cuda()
+        model = torch.nn.DataParallel(model)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
+    optimizer_dict = package['optimizer'].state_dict()
+    optimizer.load_state_dict(optimizer_dict)
+
 
     return opt,model,f_loss,optimizer,scheduler
-
-
 
 
 def creating_new_model(opt):
@@ -237,17 +267,6 @@ def creating_new_model(opt):
         opt.model_name = Model_Specification
     print('Model name: ', opt.model_name)
 
-    # os.environ['MASTER_ADDR'] = '10.57.23.164'
-    # os.environ['MASTER_PORT'] = '66666666'  
-    # dist.init_process_group(                                   
-    # backend='nccl',                                         
-    # init_method='env://',                                   
-    # world_size=2,                              
-    # rank=0)     
-
-    # model = DDP(model)
-
-
     print('----------------------Configure optimizer and scheduler----------------------')
     experiment_dir = Path('ckpt/')
     experiment_dir.mkdir(exist_ok=True)
@@ -263,6 +282,8 @@ def creating_new_model(opt):
     if(opt.apex==True):
         # model = apex.parallel.convert_syncbn_model(model)
         model.cuda()
+        f_loss.cuda()
+
         optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O2")
@@ -270,11 +291,12 @@ def creating_new_model(opt):
     else:
         # model = apex.parallel.convert_syncbn_model(model)
         model.cuda()
+        f_loss.cuda()
         optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
         model = torch.nn.DataParallel(model)
 
-    return opt,model,f_loss,optimizer,scheduler,opt.save_root
+    return opt,model,f_loss,optimizer,scheduler
 
 
 
@@ -302,7 +324,7 @@ def main():
     if(opt.load_pretrain!=''):
         opt,model,f_loss,optimizer,scheduler = load_pretrained(opt)
     else:
-        opt,model,f_loss,optimizer,scheduler,opt.save_root = creating_new_model(opt)
+        opt,model,f_loss,optimizer,scheduler = creating_new_model(opt)
     
 
 
@@ -376,11 +398,20 @@ def main():
     manager_train = metrics_manager(metrics_list_train)
 
 
+    wandb.init(project=opt.wd_project,name=opt.model_name,resume=False)
+    if(opt.wandb_history == False):
+        best_value = 0
+    else:
+        temp = wandb.restore('best_model.pth',run_path = opt.wandb_id)
+        best_value = torch.load(temp.name)['Miou_validation_ave']
 
-    wandb.init(project=opt.wd_project,name=opt.model_name)
     wandb.config.update(opt)
 
-    best_value = 0
+    if opt.epoch_ckpt == 0:
+        opt.unsave_epoch = 0
+    else:
+        opt.epoch_ckpt = opt.epoch_ckpt+1
+
     for epoch in range(opt.epoch_ckpt,opt.epoch_max):
         manager_train.reset()
         model.train()
@@ -451,7 +482,8 @@ def main():
                         'time_complexicity_online':float(1/time_complexity),
                         'storage_complexicity_online':RAM_usagePeak.item()
                         }
-            wandb.log(log_dict)
+            if(epoch - opt.unsave_epoch>=0):
+                wandb.log(log_dict)
 
         toc_epoch = time.perf_counter()
         time_tensor = toc_epoch-tic_epoch
@@ -464,7 +496,11 @@ def main():
             print(key+'_train_ave: ',summery_dict[key])
         
         log_train_end['Time_PerEpoch'] = time_tensor
-        wandb.log(log_train_end)
+        if(epoch - opt.unsave_epoch>=0):
+            wandb.log(log_train_end)
+        else:
+            print('No data upload to wandb. Start upload: Epoch[%d] Current: Epoch[%d]'%(opt.unsave_epoch,epoch))
+
 
         if(epoch % 10 == 9):
             print('---------------------Validation----------------------')
@@ -551,8 +587,10 @@ def main():
                 best_value = package['Miou_validation_ave']
                 save_root = opt.save_root+'/best_model.pth'
                 torch.save(package,save_root)
-
-            wandb.log(log_val_end)
+            if(epoch - opt.unsave_epoch>=0):
+                wandb.log(log_val_end)
+            else:
+                print('No data upload to wandb. Start upload: Epoch[%d] Current: Epoch[%d]'%(opt.unsave_epoch,epoch))
             if(opt.debug == True):
                 pdb.set_trace()
         scheduler.step()

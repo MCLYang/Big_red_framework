@@ -319,27 +319,14 @@ class maxpooler_ring(nn.Module):
 
         #BDN->B128N
         x = self.pooler(x)
+        # x torch.Size([B, 128, N]) -> torch.Size([B, 128, 1])
+        x = torch.max(x, 2, keepdim=True)[0]
+        # x torch.Size([B, 128, 1] -> torch.Size([B, 128])
+        x = x.view(-1, 128)
+        # torch.Size([B, 128]) -> torch.Size([B, 128, N])
+        x = x.view(-1, 128, 1).repeat(1, 1, N)
 
-
-        # pdb.set_trace()
-        # for key in ring_endpoint_dict:
-        x_new = []
-
-        for i in range(16):
-            x_temp = x[:,:,max_ring*i:max_ring*(i+1)]
-            # x torch.Size([B, 128, N]) -> torch.Size([B, 128, 1])
-            x_temp = torch.max(x_temp, 2, keepdim=True)[0]
-            # x torch.Size([B, 128, 1] -> torch.Size([B, 128])
-            x_temp = x_temp.view(-1, 128)
-            startpoint_mi = ring_endpoint_dict[i][0]
-            endpoint_mi  = ring_endpoint_dict[i][1]
-            # torch.Size([B, 128]) -> torch.Size([B, 128, N])
-            x_temp = x_temp.view(-1, 128, 1).repeat(1, 1, endpoint_mi -startpoint_mi)
-            x_new.append(x_temp)
-
-        # pdb.set_trace()
-        x_new = torch.cat(x_new,dim=2)
-        return x_new        
+        return x        
 
 class RingEncoder(nn.Module):
     def __init__(self, global_feat=False, feature_transform=True, channel=5,num_ring = 16,is_synchoization='BN'):
@@ -391,6 +378,7 @@ class RingEncoder(nn.Module):
         x2 = self.ringmaxpooler(x,ring)
         # return torch.cat([x1,x], 1), trans, trans_feat
         #pdb.set_trace()
+
         return torch.cat([x1,x2, x], 1), trans, trans_feat
 
 

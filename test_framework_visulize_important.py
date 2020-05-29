@@ -4,6 +4,7 @@ sys.path.append('../')
 sys.path.append('/')
 from argparse import ArgumentParser
 import os
+import h5py
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 import random
 import torch
@@ -52,16 +53,27 @@ def convert_state_dict(state_dict):
         new_state_dict[name] = v
     return new_state_dict
 
-def visualize_wandb(points,pred,target):
+def visualize_wandb(points,pred,target,index_important):
     # points [B,N,C]->[B*N,C]
     # pred,target [B,N,1]->[B*N,1]
     points = points.view(-1,5).numpy()
     pred = pred.view(-1,1).numpy()
     target = target.view(-1,1).numpy()
+    index_important = index_important.view(-1,)
+    temp_arr = np.zeros(len(target))
+    temp_arr[index_important] = 1
+    temp_arr = temp_arr.reshape(-1,1)
+    
+
     points_gt =np.concatenate((points[:,[0,1,2]],target),axis=1)
     points_pd =np.concatenate((points[:,[0,1,2]],pred),axis=1)
+    points_important =np.concatenate((points[:,[0,1,2]],temp_arr),axis=1)
+
+
     wandb.log({"Ground_truth": wandb.Object3D(points_gt)})
     wandb.log({"Prediction": wandb.Object3D(points_pd)})
+    wandb.log({"important points": wandb.Object3D(points_important)})
+
 
 
 class tag_getter(object):
@@ -90,7 +102,7 @@ def opt_global_inti():
     parser.add_argument('--phase', type=str,default='test' ,help="root load_pretrain")
     os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
-    parser.add_argument('--num_channel', type=int,default=5 ,help="num_channel")
+    parser.add_argument('--num_channel', type=int,default=5,help="num_channel")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
     parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
 
@@ -178,7 +190,7 @@ def main():
     print('Pretrained model name: ', opt.model_name)
     package['name'] = opt.model_name
     save_model(package,pretrained_model_path)       
-    #pdb.set_trace() 
+    # pdb.set_trace() 
     # save_model(package,root,name)
 
 
@@ -238,7 +250,9 @@ def main():
     wandb.init(project="Test",name=package['name'])
     wandb.config.update(opt)
 
-
+    points_gt_list =[]
+    points_pd_list =[]
+    points_important_list =[]
 
     with torch.no_grad():
         for j, data in tqdm(enumerate(testloader), total=len(testloader), smoothing=0.9):
@@ -257,6 +271,7 @@ def main():
 
             #pred.shape [B,N,2] since pred returned pass F.log_softmax
             pred, target,points = pred_mics[0].cpu(), target.cpu(),points.cpu()
+            imp_glob = pred_mics[2].cpu()
 
             #pred:[B,N,2]->[B,N]
             # pdb.set_trace()
@@ -297,7 +312,56 @@ def main():
             manager.update(file_name,miou.item())
             manager.update(difficulty,miou.item())
             manager.update(isSingle,miou.item())
+
+
+
+            dim_num = points.shape[2]
+            points = points.view(-1,dim_num).numpy()
+            pred = pred.view(-1,1).numpy()
+            target = target.view(-1,1).numpy()
+            imp_glob = imp_glob.view(-1,)
+
+
+            number_sheet,_,bin_sheet = torch.unique(imp_glob, sorted=True, return_inverse=True, return_counts=True, dim=None)
+
+            temp_arr = np.zeros(len(target))
+
+            temp_arr[number_sheet] = bin_sheet
+
+
+            temp_arr = temp_arr.reshape(-1,1)
+            points_gt =np.concatenate((points[:,[0,1,2]],target),axis=1)
+            points_pd =np.concatenate((points[:,[0,1,2]],pred),axis=1)
+            points_important =np.concatenate((points[:,[0,1,2]],temp_arr),axis=1)
+
+
+            if(opt.including_ring):
+                temp_arr2 = np.zeros(len(target))
+                imp_ring = pred_mics[3].cpu()
+                imp_ring = imp_ring.view(-1,)
+                number_sheet,_,bin_sheet = torch.unique(imp_ring, sorted=True, return_inverse=True, return_counts=True, dim=None)
+                temp_arr2[number_sheet] = bin_sheet
+                temp_arr2 = temp_arr2.reshape(-1,1)
+                points_important =np.concatenate((points_important,temp_arr2),axis=1)
+
+
+            points_gt_list.append(points_gt)
+            points_pd_list.append(points_pd)
+            points_important_list.append(points_important)
+
+
+            # visualize_wandb(points,pred,target,index_important)
+            # pdb.set_trace()
     
+
+    f = h5py.File('resluts.h5','w')
+    f.create_dataset('points_gt_list',data = np.array(points_gt_list))
+    f.create_dataset('points_pd_list',data =np.array(points_pd_list))
+    f.create_dataset('points_important_list',data = np.array(points_important_list))
+    f.close()
+
+
+
     summery_dict = manager.summary()
     generate_report(summery_dict,package)
     wandb.log(summery_dict)

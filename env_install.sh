@@ -1,10 +1,8 @@
-#!/usr/bin/env bash
-
 cd ../
 apt-get install wget
-wget https://www.dropbox.com/s/4b41v7viusa70rj/bigRed_h5_pointnet.tar.gz
-tar -xvzf bigRed_h5_pointnet.tar.gz
-rm -r bigRed_h5_pointnet.tar.gz
+wget https://www.dropbox.com/s/hbnpnchf8mrzfz1/bigRed_h5_pointnet_sorted.tar.gz
+tar -xvzf bigRed_h5_pointnet_sorted.tar.gz
+rm -r bigRed_h5_pointnet_sorted.tar.gz
 git clone https://github.com/andreafabrizi/Dropbox-Uploader.git
 cd ~/Dropbox-Uploader
 sudo chmod +x dropbox_uploader.sh
