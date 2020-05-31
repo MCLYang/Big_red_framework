@@ -425,7 +425,7 @@ if __name__ == '__main__':
 #         self.feature_transform = feature_transform
 #         if self.feature_transform:
 #             self.fstn = STNkd(k=64)
-#
+#PointNetEncoder
 #     def forward(self, x):
 #         n_pts = x.size()[2]
 #         trans = self.stn(x)

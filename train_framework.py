@@ -4,6 +4,8 @@ sys.path.append('../')
 sys.path.append('/')
 from argparse import ArgumentParser
 import os
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
 import random
 import torch
 import torch.nn.parallel
@@ -22,12 +24,17 @@ import wandb
 from collections import OrderedDict
 import random
 from BigredDataSet import BigredDataSet
+from BigredDataSetPTG import BigredDataSetPTG
 from kornia.utils.metrics import mean_iou,confusion_matrix
 import pandas as pd
 import importlib
 import shutil
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
+from opt_deepgcn import OptInit as OptInit_deepgcn
+from torch_geometric.data import DenseDataLoader
+import torch_geometric.transforms
+from torch.nn import Sequential as Seq
 
 # from apex import amp
 # import apex
@@ -47,7 +54,9 @@ def opt_global_inti():
     parser.add_argument('--conda_env', type=str, default='some_name')
     parser.add_argument('--notification_email', type=str, default='will@email.com')
     # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
-    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
+    # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
+    parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_gcn', help="dataset path")
+
     parser.add_argument('--apex', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
     parser.add_argument('--opt_level', default='O2',type=str, metavar='N')
 
@@ -66,35 +75,19 @@ def opt_global_inti():
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
     parser.add_argument('--epoch_max', type=int,default=500,help="epoch_max")
     # parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
-    # parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
 
     #Pointnet_ring_light4c_upsample+groupConv
-    parser.add_argument('--num_gpu', type=int,default=1,help="num_gpu")
-    parser.add_argument('--num_channel', type=int,default=4,help="num_channel")
-    parser.add_argument('--model', type=str,default='pointnetpp' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+
+    parser.add_argument('--num_channel', type=int,default=5,help="num_channel")
+    parser.add_argument('--model', type=str,default='deepgcn' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    # parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
-    parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
-    parser.add_argument('--wd_project', type=str,default="Complex_based_training",help="")
-    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
-
-
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-
-
-
-
-
-
-    # Pointnet_ringDP
-    #multiprocess
-    # parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
-    # parser.add_argument('--debug', type=bool,default=True ,help="is task for debugging?False for load entire dataset")
-    # parser.add_argument('--num_channel', type=int,default=4 ,help="num_channel")
-    # parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
-    # parser.add_argument('--epoch_max', type=int,default=10 ,help="epoch_max")
-
-
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    # parser.add_argument('--wd_project', type=str,default="Complex_based_training",help="")
+    parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=True ,help="is task for debugging?False for load entire dataset")
 
     args = parser.parse_args()
     return args
@@ -250,7 +243,14 @@ def creating_new_model(opt):
     opt.val_miou = 0
     module_name = 'model.'+opt.model
     MODEL = importlib.import_module(module_name)
-    model = MODEL.get_model(input_channel = opt.num_channel,is_synchoization = opt.synchonization)
+    opt_deepgcn = None
+
+    if(opt.model == 'deepgcn'):
+        opt_deepgcn = OptInit_deepgcn().initialize()
+        model = MODEL.get_model(opt2 = opt_deepgcn,input_channel = opt.num_channel,is_synchoization = opt.synchonization)
+    else:
+        model = MODEL.get_model(input_channel = opt.num_channel,is_synchoization = opt.synchonization)
+
     Model_Specification = MODEL.get_model_name(input_channel = opt.num_channel)
     f_loss = MODEL.get_loss(input_channel = opt.num_channel)
 
@@ -296,7 +296,7 @@ def creating_new_model(opt):
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
         model = torch.nn.DataParallel(model)
 
-    return opt,model,f_loss,optimizer,scheduler
+    return opt,model,f_loss,optimizer,scheduler,opt_deepgcn
 
 
 
@@ -322,9 +322,9 @@ def main():
     opt.gpu_list = gpu_name_list
 
     if(opt.load_pretrain!=''):
-        opt,model,f_loss,optimizer,scheduler = load_pretrained(opt)
+        opt,model,f_loss,optimizer,scheduler,opt_deepgcn = load_pretrained(opt)
     else:
-        opt,model,f_loss,optimizer,scheduler = creating_new_model(opt)
+        opt,model,f_loss,optimizer,scheduler,opt_deepgcn = creating_new_model(opt)
     
 
 
@@ -335,48 +335,77 @@ def main():
 
     #pdb.set_trace()
 
-    train_dataset = BigredDataSet(
-        root=opt.dataset_root,
-        is_train=True,
-        is_validation=False,
-        is_test=False,
-        num_channel = opt.num_channel,
-        test_code = opt.debug,
-        including_ring = opt.including_ring
-        )
+    if(opt.model!='deepgcn'):
+        train_dataset = BigredDataSet(
+            root=opt.dataset_root,
+            is_train=True,
+            is_validation=False,
+            is_test=False,
+            num_channel = opt.num_channel,
+            test_code = opt.debug,
+            including_ring = opt.including_ring
+            )
 
-    f_loss.load_weight(train_dataset.labelweights)
+        f_loss.load_weight(train_dataset.labelweights)
 
-    # pdb.set_trace()
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=opt.batch_size,
+            shuffle=True,
+            pin_memory=True,
+            drop_last=True,
+            num_workers=int(opt.num_workers))
 
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=opt.batch_size,
-        shuffle=True,
-        pin_memory=True,
-        drop_last=True,
-        num_workers=int(opt.num_workers))
+        validation_dataset = BigredDataSet(
+            root=opt.dataset_root,
+            is_train=False,
+            is_validation=True,
+            is_test=False,
+            num_channel = opt.num_channel,
+            test_code = opt.debug,
+            including_ring = opt.including_ring)
+        validation_loader = torch.utils.data.DataLoader(
+            validation_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            drop_last=True,
+            num_workers=int(opt.num_workers))
+    else:
+        train_dataset = BigredDataSetPTG(root = opt.dataset_root,
+                                 is_train=True,
+                                 is_validation=False,
+                                 is_test=False,
+                                 num_channel=opt.num_channel,
+                                 new_dataset = True,
+                                 test_code = opt.debug,
+                                 pre_transform=torch_geometric.transforms.NormalizeScale()
+                                 )
+        train_loader = DenseDataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True, num_workers=opt.num_workers)
+        validation_dataset = BigredDataSetPTG(root = opt.dataset_root,
+                                    is_train=False,
+                                    is_validation=True,
+                                    is_test=False,
+                                    new_dataset = False,
+                                    test_code = opt.debug,
+                                    num_channel=opt.num_channel,
+                                    pre_transform=torch_geometric.transforms.NormalizeScale()
+                                    )
+        validation_loader = DenseDataLoader(validation_dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.num_workers)
 
-    validation_dataset = BigredDataSet(
-        root=opt.dataset_root,
-        is_train=False,
-        is_validation=True,
-        is_test=False,
-        num_channel = opt.num_channel,
-        test_code = opt.debug,
-        including_ring = opt.including_ring
-)
-    result_sheet = validation_dataset.result_sheet
-    file_dict= validation_dataset.file_dict
-    tag_Getter = tag_getter(file_dict)
+        labelweights = np.zeros(2)
+        labelweights, _ = np.histogram(train_dataset.data.y.numpy(), range(3))
+        labelweights = labelweights.astype(np.float32)
+        labelweights = labelweights / np.sum(labelweights)
+        labelweights = np.power(np.amax(labelweights) / labelweights, 1 / 3.0)
+        weights = torch.Tensor(labelweights).cuda()
+        f_loss.load_weight(weights)
 
-    validation_loader = torch.utils.data.DataLoader(
-        validation_dataset,
-        batch_size=opt.batch_size,
-        shuffle=False,
-        pin_memory=True,
-        drop_last=True,
-        num_workers=int(opt.num_workers))
+
+
+
+
+
 
     print('train dataset num_frame: ',len(train_dataset))
     print('num_batch: ', int(len(train_loader) / opt.batch_size))
@@ -419,10 +448,18 @@ def main():
         print('---------------------Training----------------------')
         print("Epoch: ",epoch)
         for i, data in tqdm(enumerate(train_loader), total=len(train_loader), smoothing=0.9):
-            points, target = data
-            #target.shape [B,N]
-            #points.shape [B,N,C]
-            points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
+            
+            if(opt.model == 'deepgcn'):
+                points = torch.cat((data.pos.transpose(2, 1).unsqueeze(3), data.x.transpose(2, 1).unsqueeze(3)), 1)
+                points = points[:, :opt.num_channel, :, :]
+                target = data.y.cuda()
+            else:
+                points, target = data
+                #target.shape [B,N]
+                #points.shape [B,N,C]
+                points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
+
+            # pdb.set_trace()
             #training...
             optimizer.zero_grad()
             tic = time.perf_counter()
@@ -448,6 +485,7 @@ def main():
             pred, target = pred_mics[0].cpu(), target.cpu()
 
             #pred:[B,N,2]->[B,N]
+            #pdb.set_trace()
             pred = pred.data.max(dim=2)[1]
             
             #compute iou
@@ -501,27 +539,34 @@ def main():
         else:
             print('No data upload to wandb. Start upload: Epoch[%d] Current: Epoch[%d]'%(opt.unsave_epoch,epoch))
 
-
-        if(epoch % 10 == 9):
+        scheduler.step()
+        if(epoch % 5 == 1):
             print('---------------------Validation----------------------')
             manager_test.reset()
             model.eval()
             print("Epoch: ",epoch)
             with torch.no_grad():
                 for j, data in tqdm(enumerate(validation_loader), total=len(validation_loader), smoothing=0.9):
-                    points, target = data
-                    #target.shape [B,N]
-                    #points.shape [B,N,C]
-                    points, target = points.cuda(), target.cuda()
+
+
+                    if(opt.model == 'deepgcn'):
+                        points = torch.cat((data.pos.transpose(2, 1).unsqueeze(3), data.x.transpose(2, 1).unsqueeze(3)), 1)
+                        points = points[:, :opt.num_channel, :, :]
+                        target = data.y.cuda()
+                    else:
+                        points, target = data
+                        #target.shape [B,N]
+                        #points.shape [B,N,C]
+                        points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
+
+
                     tic = time.perf_counter()
                     pred_mics = model(points)                
                     toc = time.perf_counter()
                     
-
                     #pred.shape [B,N,2] since pred returned pass F.log_softmax
                     pred, target = pred_mics[0].cpu(), target.cpu()
 
-                    
                     #compute loss
                     test_loss = 0
 
@@ -532,7 +577,9 @@ def main():
                     #compute OA
                     overall_correct_site = torch.diag(cm).sum()
                     overall_reference_site = cm.sum()
-                    assert overall_reference_site == opt.batch_size * opt.num_points,"Confusion_matrix computing error" 
+                    # if(overall_reference_site != opt.batch_size * opt.num_points):
+                    #pdb.set_trace()
+                    #assert overall_reference_site == opt.batch_size * opt.num_points,"Confusion_matrix computing error"
                     oa = float(overall_correct_site/overall_reference_site)
                     
                     #compute iou
@@ -576,6 +623,12 @@ def main():
             opt_temp = vars(opt)
             for k in opt_temp:
                 package[k] = opt_temp[k]
+            if(opt_deepgcn is None):
+                opt_temp = vars(opt_deepgcn)
+                for k in opt_temp:
+                    package[k+'_opt2'] = opt_temp[k]
+
+
             for k in log_val_end:
                 package[k] = log_val_end[k]
 
@@ -593,7 +646,6 @@ def main():
                 print('No data upload to wandb. Start upload: Epoch[%d] Current: Epoch[%d]'%(opt.unsave_epoch,epoch))
             if(opt.debug == True):
                 pdb.set_trace()
-        scheduler.step()
 
 
 

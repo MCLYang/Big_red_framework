@@ -21,7 +21,7 @@ import time
 import wandb
 from collections import OrderedDict
 import random
-from BigredDataSet import BigredDataSet
+from BigredDataSet_test import BigredDataSet
 from kornia.utils.metrics import mean_iou,confusion_matrix
 import pandas as pd
 import importlib
@@ -90,11 +90,11 @@ def opt_global_inti():
     parser.add_argument('--phase', type=str,default='test' ,help="root load_pretrain")
     os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
-    parser.add_argument('--num_channel', type=int,default=5 ,help="num_channel")
+    parser.add_argument('--num_channel', type=int,default=1000 ,help="num_channel")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
     parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
 
-    parser.add_argument('--load_pretrain', type=str,default='ckpt/pointnet_5c_simple',help="root load_pretrain")
+    parser.add_argument('--load_pretrain', type=str,default='ckpt/pointnet_4c',help="root load_pretrain")
     parser.add_argument('--model', type=str,default='Pointnet_ring_light' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
 

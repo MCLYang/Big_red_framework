@@ -35,9 +35,9 @@ class pointnet_loss(torch.nn.Module):
         self.weight = torch.tensor(weight).cpu()
     def forward(self, pred_mics, target):
         weight = self.weight
-        target = target.view(-1).cpu()
+        target = target.view(-1)
         pred = pred_mics[0].cpu()
-        trans_feat = pred_mics[1].cpu()
+        trans_feat = pred_mics[1]
         pred = pred.view(-1,2)
         # pdb.set_trace()
         if(self.feature_transform == True):
