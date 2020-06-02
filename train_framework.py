@@ -85,9 +85,9 @@ def opt_global_inti():
 
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
     parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
-    # parser.add_argument('--wd_project', type=str,default="Complex_based_training",help="")
-    parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
-    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=True ,help="is task for debugging?False for load entire dataset")
+    parser.add_argument('--wd_project', type=str,default="Complex_based_training",help="")
+    # parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
 
     args = parser.parse_args()
     return args
@@ -285,15 +285,15 @@ def creating_new_model(opt):
         f_loss.cuda()
 
         optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O2")
         model = torch.nn.DataParallel(model,device_ids =[0,1])
     else:
         # model = apex.parallel.convert_syncbn_model(model)
         model.cuda()
         f_loss.cuda()
-        optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+        optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999))
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
         model = torch.nn.DataParallel(model)
 
     return opt,model,f_loss,optimizer,scheduler,opt_deepgcn
@@ -377,7 +377,7 @@ def main():
                                  is_validation=False,
                                  is_test=False,
                                  num_channel=opt.num_channel,
-                                 new_dataset = True,
+                                 new_dataset = False,
                                  test_code = opt.debug,
                                  pre_transform=torch_geometric.transforms.NormalizeScale()
                                  )
@@ -472,7 +472,10 @@ def main():
             #pred.shape [B,N,2]->[B*N,2]
             #pdb.set_trace()
             
+
+            #pdb.set_trace()
             loss = f_loss(pred_mics, target)   
+
             if(opt.apex):
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
@@ -504,7 +507,8 @@ def main():
                 temp.append(torch.cuda.memory_allocated(k))
             RAM_usagePeak = torch.tensor(temp).float().mean()
 
-
+            #print(loss.item())
+            #print(miou.item())
             #writeup logger
             manager_train.update('loss',loss.item())
             manager_train.update('Biou',Biou.item())
@@ -540,7 +544,7 @@ def main():
             print('No data upload to wandb. Start upload: Epoch[%d] Current: Epoch[%d]'%(opt.unsave_epoch,epoch))
 
         scheduler.step()
-        if(epoch % 5 == 1):
+        if(epoch % 2 == 1):
             print('---------------------Validation----------------------')
             manager_test.reset()
             model.eval()

@@ -35,3 +35,6 @@ pip install --upgrade tensorflow-graphics
 # install useful modules
 pip install requests # sometimes pytorch geometric forget to install it, but it is in need
 pip install tqdm
+
+
+Bachelor's degree in Mathematics: I  volunteer for the University of California, Irvine, the computer vision lab as research assistant and full time work over 50 hours a week.  I am doing my research project advised by Prof. Charless Fowlkes.  I am responsible to design the deep learning model to predict human activity based on 2D image, and composing scholarly paper expected to submit in academic conference of computer vision. 

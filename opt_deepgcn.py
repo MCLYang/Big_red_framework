@@ -55,11 +55,11 @@ class OptInit():
         parser.add_argument('--epsilon', default=0.2, type=float, help='stochastic epsilon for gcn')
         parser.add_argument('--stochastic', default=True, type=bool, help='stochastic for gcn, True or False')
 
-        #need ajust
-        parser.add_argument('--train_path', type=str, default='../bigRed_h5_gcn/')
-        parser.add_argument('--n_blocks', default=2, type=int, help='number of basic blocks')
-        parser.add_argument('--n_filters', default=16, type=int, help='number of channels of deep features')
-        parser.add_argument('--kernel_size', default=4, type=int, help='neighbor num (default:16)')
+
+        parser.add_argument('--train_path', type=str, default='../bigRed_h5_gcn')
+        parser.add_argument('--n_blocks', default=4, type=int, help='number of basic blocks')
+        parser.add_argument('--n_filters', default=128, type=int, help='number of channels of deep features')
+        parser.add_argument('--kernel_size', default=3, type=int, help='neighbor num (default:16)')
         parser.add_argument('--batch_size', default=2, type=int, help='mini-batch size (default:16)')
 
 

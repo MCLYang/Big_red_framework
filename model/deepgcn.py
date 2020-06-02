@@ -25,9 +25,10 @@ class deepgcn_loss(nn.Module):
         self.weight = torch.tensor(weight).cuda()
     def forward(self, pred_mics, target):
         weight = self.weight
+        #pdb.set_trace()
         target = target.view(-1)
         pred = pred_mics[0]
-        pred = pred.view(-1,2)
+        pred = pred.reshape(-1,2)
         loss = F.cross_entropy(pred, target,weight = weight, reduction='mean')
         return loss
 
@@ -86,5 +87,7 @@ class deepgcn_sem_seg(torch.nn.Module):
 
         fusion = torch.max_pool2d(self.fusion_block(feats), kernel_size=[feats.shape[2], feats.shape[3]])
         fusion = torch.repeat_interleave(fusion, repeats=feats.shape[2], dim=2)
-        predict = self.prediction(torch.cat((fusion, feats), dim=1)).squeeze(-1).view(B,N,-1)
+        predict = self.prediction(torch.cat((fusion, feats), dim=1)).squeeze(-1)
+        predict = predict.transpose(1,2)
+        
         return [predict]

@@ -1,5 +1,7 @@
 cd ../
+apt-get update
 apt-get install wget
+apt-get install zip
 wget https://www.dropbox.com/s/hbnpnchf8mrzfz1/bigRed_h5_pointnet_sorted.tar.gz
 tar -xvzf bigRed_h5_pointnet_sorted.tar.gz
 rm -r bigRed_h5_pointnet_sorted.tar.gz
@@ -16,6 +18,7 @@ pip install h5py
 pip install kornia
 apt-get install watch
 pip install gpustat
+
 
 # install anaconda3.
 #cd ~/
