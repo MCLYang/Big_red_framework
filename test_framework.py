@@ -2,8 +2,10 @@ from __future__ import print_function
 import sys
 sys.path.append('../')
 sys.path.append('/')
+
 from argparse import ArgumentParser
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 import random
 import torch
@@ -21,17 +23,20 @@ import time
 import wandb
 from collections import OrderedDict
 import random
-from BigredDataSet_test import BigredDataSet
+from BigredDataSet import BigredDataSet
+from BigredDataSetPTG import BigredDataSetPTG
+from opt_deepgcn import OptInit as OptInit_deepgcn
+from torch_geometric.data import DenseDataLoader
+import torch_geometric.transforms
+from torch.nn import Sequential as Seq
 from kornia.utils.metrics import mean_iou,confusion_matrix
 import pandas as pd
 import importlib
 # import ckpt
-
 # importlib.import_module
 # MODEL = importlib.import_module(args.model)
 # shutil.copy('models/%s.py' % args.model, str(experiment_dir))
 # shutil.copy('models/pointnet_util.py', str(experiment_dir))
-
 
 def setSeed(seed = 2):
     random.seed(seed)
@@ -86,18 +91,13 @@ def opt_global_inti():
     parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
     parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
     parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
-
     parser.add_argument('--phase', type=str,default='test' ,help="root load_pretrain")
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-
     parser.add_argument('--num_channel', type=int,default=1000 ,help="num_channel")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
     parser.add_argument('--debug', type=bool,default=False ,help="is task for debugging?False for load entire dataset")
-
-    parser.add_argument('--load_pretrain', type=str,default='ckpt/pointnet_4c',help="root load_pretrain")
-    parser.add_argument('--model', type=str,default='Pointnet_ring_light' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
+    parser.add_argument('--load_pretrain', type=str,default='ckpt/pointnet_4c multiple',help="root load_pretrain")
+    parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn]")
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
-
     args = parser.parse_args()
     return args
 
@@ -146,23 +146,20 @@ def main():
     opt.num_channel = package['num_channel']
     opt.time = package['time'] 
     opt.epoch_ckpt = package['epoch']
-
-    # opt.val_miou = package['validation_mIoU']
-    # package.pop('validation_mIoU')
-    # package['Validation_ave_miou'] = opt.val_miou
-
-    # num_gpu = package['gpuNum']
-    # package.pop('gpuNum')
-    # package['num_gpu'] = num_gpu
-
-    # save_model(package,pretrained_model_path)        
+       
     state_dict = convert_state_dict(para_state_dict)
 
     ckpt_,ckpt_file_name  = opt.load_pretrain.split("/")
     module_name = ckpt_+'.'+ckpt_file_name+'.'+'model'
     MODEL = importlib.import_module(module_name)
-    # print('opt.num_channel: ',opt.num_channel)
-    model = MODEL.get_model(input_channel = opt.num_channel)
+    opt_deepgcn = []
+    print(opt.model)
+    if(opt.model == 'deepgcn'):
+        opt_deepgcn = OptInit_deepgcn().initialize()
+        model = MODEL.get_model(opt2 = opt_deepgcn,input_channel = opt.num_channel)
+    else:
+        # print('opt.num_channel: ',opt.num_channel)
+        model = MODEL.get_model(input_channel = opt.num_channel)
     Model_Specification = MODEL.get_model_name(input_channel = opt.num_channel)
     print('----------------------Test Model----------------------')
     print('Root of prestrain model: ', pretrained_model_path)
@@ -177,7 +174,15 @@ def main():
         opt.model_name = Model_Specification
     print('Pretrained model name: ', opt.model_name)
     package['name'] = opt.model_name
+    try:
+        package["Miou_validation_ave"] = package.pop("Validation_ave_miou")
+    except:
+        pass
+
+
     save_model(package,pretrained_model_path)       
+    #pdb.set_trace()
+
     #pdb.set_trace() 
     # save_model(package,root,name)
 
@@ -201,27 +206,45 @@ def main():
     print('Phase: ', opt.phase)
     print('debug: ', opt.debug)
 
-    test_dataset = BigredDataSet(
-        root=opt.dataset_root,
-        is_train=False,
-        is_validation=False,
-        is_test=True,
-        num_channel = opt.num_channel,
-        test_code = opt.debug,
-        including_ring = opt.including_ring)
-    result_sheet = test_dataset.result_sheet
-    file_dict= test_dataset.file_dict
-    tag_Getter = tag_getter(file_dict)
 
 
+    if(opt.model!='deepgcn'):
+        test_dataset = BigredDataSet(
+            root=opt.dataset_root,
+            is_train=False,
+            is_validation=False,
+            is_test=True,
+            num_channel = opt.num_channel,
+            test_code = opt.debug,
+            including_ring = opt.including_ring)
+        result_sheet = test_dataset.result_sheet
+        file_dict= test_dataset.file_dict
+        tag_Getter = tag_getter(file_dict)
+        testloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            drop_last=True,
+            num_workers=int(opt.num_workers))
+    else:
+        test_dataset = BigredDataSetPTG(root = opt.dataset_root,
+                            is_train=False,
+                            is_validation=False,
+                            is_test=True,
+                            num_channel=opt.num_channel,
+                            new_dataset = True,
+                            test_code = opt.debug,
+                            pre_transform=torch_geometric.transforms.NormalizeScale()
+                            )
+        result_sheet = test_dataset.result_sheet
+        file_dict= test_dataset.file_dict
+        print(file_dict)
+        tag_Getter = tag_getter(file_dict)
 
-    testloader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=opt.batch_size,
-        shuffle=False,
-        pin_memory=True,
-        drop_last=True,
-        num_workers=int(opt.num_workers))
+        testloader = DenseDataLoader(test_dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.num_workers)
+
+
 
     print('num_frame: ',len(test_dataset))
     print('batch_size: ', opt.batch_size)
@@ -229,9 +252,10 @@ def main():
 
     print('----------------------Testing----------------------')
     metrics_list = ['Miou','Biou','Fiou','test_loss','OA','time_complexicity','storage_complexicity']
+    print(result_sheet)
     for name in result_sheet:
         metrics_list.append(name)
-
+    print(metrics_list)
     manager = metrics_manager(metrics_list)
 
     model.eval()
@@ -242,10 +266,17 @@ def main():
 
     with torch.no_grad():
         for j, data in tqdm(enumerate(testloader), total=len(testloader), smoothing=0.9):
-            points, target = data
-            #target.shape [B,N]
-            #points.shape [B,N,C]
-            points, target = points.cuda(), target.cuda()
+
+            if(opt.model == 'deepgcn'):
+                points = torch.cat((data.pos.transpose(2, 1).unsqueeze(3), data.x.transpose(2, 1).unsqueeze(3)), 1)
+                points = points[:, :opt.num_channel, :, :].cuda()
+                target = data.y.cuda()
+            else:
+                points, target = data
+                #target.shape [B,N]
+                #points.shape [B,N,C]
+                points, target = points.cuda(), target.cuda()
+            
             tic = time.perf_counter()
             pred_mics = model(points)
             toc = time.perf_counter()

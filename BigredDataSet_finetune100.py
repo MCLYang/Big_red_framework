@@ -8,7 +8,7 @@ import pdb
 # from torch_geometric.data import (InMemoryDataset, Data, download_url,
 #
 #
-# extract_zip)
+#                                   extract_zip)
 
 #is_test is final
 import pdb
@@ -36,7 +36,7 @@ class BigredDataSet():
         laserID_set = []
         intensity_set = []
 
-        with open(os.path.join(root, "test.txt"), 'r') as f:
+        with open(os.path.join(root, "testframe.txt"), 'r') as f:
             data_list = [x.split('/')[-1] for x in f.read().split('\n')[:-1]]
 
         # data_list = data_list[:1]
@@ -45,12 +45,13 @@ class BigredDataSet():
         counter_for_file = 0
         for file in data_list:
             # print(len(pointset))
-            #pdb.set_trace()
+            # pdb.set_trace()
             with h5py.File(os.path.join(root, file), 'r') as f:
                 try:
+                    print('Processing: ' + file)
                     if(self.test_code == False):
-                            train_tail = int(np.array(f['label']).shape[0] * 0.7)
-                            validation_tail = int(np.array(f['label']).shape[0] * 0.9)
+                            train_tail = int(100)
+                            validation_tail = int(np.array(f['label']).shape[0] * 1)
                             test_tail = int(np.array(f['label']).shape[0] * 1)
                     if(self.test_code == True):
                             train_tail = int(np.array(f['label']).shape[0] * 0.01)
@@ -106,7 +107,7 @@ class BigredDataSet():
                         self.file_dict[counter_for_file] = file
                         counter_for_file = counter_for_file + n_frame
 
-                    print('Successfully Loading: ' + file)
+
 
                 except:
                     f.close()
@@ -121,7 +122,6 @@ class BigredDataSet():
         'singlePerson':[]
         }
 
-	
         for key in sorted_keys:
             tempname = self.file_dict[key]
             tempname = tempname[:-3]
@@ -130,14 +130,12 @@ class BigredDataSet():
 
 
         #pdb.set_trace()
-        print('Concatenating The All Data...')
+        # pdb.set_trace()
         self.point_set = np.concatenate(pointset, axis=0)
         self.label_set = np.concatenate(lableset, axis=0)
-        print('Concatenating Complete...')
-
-
         if(including_ring == False):
             self.point_set = self.point_set[:, :, 0:num_channel]
+        
         else:
             temp = list(range(num_channel))
             temp.append(4)

@@ -23,7 +23,7 @@ import time
 import wandb
 from collections import OrderedDict
 import random
-from BigredDataSet import BigredDataSet
+from BigredDataSet_finetune100 import BigredDataSet  
 from BigredDataSetPTG import BigredDataSetPTG
 from kornia.utils.metrics import mean_iou,confusion_matrix
 import pandas as pd
@@ -54,32 +54,41 @@ def opt_global_inti():
     parser.add_argument('--conda_env', type=str, default='some_name')
     parser.add_argument('--notification_email', type=str, default='will@email.com')
     # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet', help="dataset path")
+    # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
     parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_pointnet_sorted', help="dataset path")
-    # parser.add_argument('--dataset_root', type=str, default='../bigRed_h5_gcn', help="dataset path")
+
     parser.add_argument('--apex', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
     parser.add_argument('--opt_level', default='O2',type=str, metavar='N')
+
     parser.add_argument('--num_workers', type=int, help='number of data loading workers', default=32)
+
     parser.add_argument('--phase', type=str,default='Train' ,help="root load_pretrain")
     parser.add_argument('--num_points', type=int,default=20000 ,help="use feature transform")
+
     parser.add_argument('--wandb_history', type=lambda x: (str(x).lower() == 'true'),default=False ,help="load wandb history")
     parser.add_argument('--wandb_id', type=str,default='',help="")
     parser.add_argument('--wandb_file', type=str,default='',help="")
+
     parser.add_argument('--unsave_epoch', type=int,default=0,help="")
     parser.add_argument('--load_pretrain', type=str,default='',help="root load_pretrain")
     parser.add_argument('--synchonization', type=str,default='BN' ,help="[BN,BN_syn,Instance]")
     parser.add_argument('--tol_stop', type=float,default=1e-5 ,help="early stop for loss")
     parser.add_argument('--epoch_max', type=int,default=500,help="epoch_max")
-    # Parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
-    # Pointnet_ring_light4c_upsample+groupConv
+    # parser.add_argument('--wd_project', type=str,default="Test_TimeComplexcity",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+
+    #Pointnet_ring_light4c_upsample+groupConv
     parser.add_argument('--num_gpu', type=int,default=2,help="num_gpu")
+
     parser.add_argument('--num_channel', type=int,default=4,help="num_channel")
-    # parser.add_argument('--model', type=str,default='deepgcn' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
     parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    # parser.add_argument('--model', type=str,default='pointnet' ,help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+
     parser.add_argument('--including_ring', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
     parser.add_argument("--batch_size", type=int, default=16, help="size of the batches")
-    parser.add_argument('--wd_project', type=str,default="pointnet_4c",help="")
-    # Parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
+    parser.add_argument('--wd_project', type=str,default="100",help="")
+    # parser.add_argument('--wd_project', type=str,default="debug",help="[pointnet,pointnetpp,deepgcn,dgcnn,pointnet_ring,pointnet_ring_light]")
     parser.add_argument('--debug', type=lambda x: (str(x).lower() == 'true'),default=False ,help="is task for debugging?False for load entire dataset")
+
     args = parser.parse_args()
     return args
 
@@ -130,6 +139,7 @@ class tag_getter(object):
         file_name = file_name[:-3]
         difficulty,location,isSingle = file_name.split("_")
         return(difficulty,location,isSingle,file_name)
+
 
 def generate_report(summery_dict,package):
     save_sheet=[]
@@ -282,8 +292,8 @@ def creating_new_model(opt):
         # model = apex.parallel.convert_syncbn_model(model)
         model.cuda()
         f_loss.cuda()
-        optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+        optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999))
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
         model = torch.nn.DataParallel(model)
 
     return opt,model,f_loss,optimizer,scheduler,opt_deepgcn
@@ -447,7 +457,7 @@ def main():
                 points, target = data
                 #target.shape [B,N]
                 #points.shape [B,N,C]
-                points, target = points.cuda(), target.cuda()
+                points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
             # pdb.set_trace()
             #training...
@@ -551,7 +561,7 @@ def main():
                         points, target = data
                         #target.shape [B,N]
                         #points.shape [B,N,C]
-                        points, target = points.cuda(), target.cuda()
+                        points, target = points.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
 
                     tic = time.perf_counter()

@@ -8,11 +8,14 @@ import pdb
 # from torch_geometric.data import (InMemoryDataset, Data, download_url,
 #
 #
-# extract_zip)
+#               
+
+#
+# tract_zip)
 
 #is_test is final
 import pdb
-class BigredDataSet():
+class BigredDataSet_finetune():
     def __init__(self,
                  root,
                  is_train=True,
@@ -35,9 +38,12 @@ class BigredDataSet():
         label_set = []
         laserID_set = []
         intensity_set = []
-
-        with open(os.path.join(root, "test.txt"), 'r') as f:
+        data_list_no_tune = []
+        with open(os.path.join(root, "simple_medium.txt"), 'r') as f:
             data_list = [x.split('/')[-1] for x in f.read().split('\n')[:-1]]
+
+        with open(os.path.join(root, "complex.txt"), 'r') as f:
+            data_list_no_tune = [x.split('/')[-1] for x in f.read().split('\n')[:-1]]
 
         # data_list = data_list[:1]
         pointset = []
@@ -48,9 +54,10 @@ class BigredDataSet():
             #pdb.set_trace()
             with h5py.File(os.path.join(root, file), 'r') as f:
                 try:
+                    print('Processing: ' + file)
                     if(self.test_code == False):
-                            train_tail = int(np.array(f['label']).shape[0] * 0.7)
-                            validation_tail = int(np.array(f['label']).shape[0] * 0.9)
+                            train_tail = int(100)
+                            validation_tail = int(np.array(f['label']).shape[0] * 1)
                             test_tail = int(np.array(f['label']).shape[0] * 1)
                     if(self.test_code == True):
                             train_tail = int(np.array(f['label']).shape[0] * 0.01)
@@ -105,11 +112,43 @@ class BigredDataSet():
 
                         self.file_dict[counter_for_file] = file
                         counter_for_file = counter_for_file + n_frame
-
-                    print('Successfully Loading: ' + file)
-
                 except:
                     f.close()
+
+        if (self.is_train == False and self.is_validation == True and self.is_test == False):
+            print("Adding the trained class test data for evaluation")
+            for file in data_list_no_tune:
+                # print(len(pointset))
+                #pdb.set_trace()
+                with h5py.File(os.path.join(root, file), 'r') as f:
+                    try:
+                        print('Processing: ' + file)
+                        if(self.test_code == False):
+                                train_tail = int(np.array(f['label']).shape[0] * 0.7)
+                                validation_tail = int(np.array(f['label']).shape[0] * 0.9)
+                                test_tail = int(np.array(f['label']).shape[0] * 1)
+                        if(self.test_code == True):
+                                train_tail = int(np.array(f['label']).shape[0] * 0.01)
+                                validation_tail = int(np.array(f['label']).shape[0] * 0.02)
+                                test_tail = int(np.array(f['label']).shape[0] * 0.03)
+                        current_point = []
+                        print("Loading Validation Data...")
+                        n_frame = np.array(f['xyz'][train_tail:validation_tail, :, :]).shape[0]
+                        n_points = np.array(f['xyz'][train_tail:validation_tail, :, :]).shape[1]
+                        current_point.append(np.array(f['xyz'][train_tail:validation_tail, :, :]))
+                        current_point.append(
+                            np.array(f['intensity'][train_tail:validation_tail, :]).reshape(n_frame, n_points, 1))
+                        current_point.append(
+                            np.array(f['laserID'][train_tail:validation_tail, :]).reshape(n_frame, n_points, 1))
+
+                        current_point = np.concatenate(current_point, axis=2)
+                        lableset.append(np.array(f['label'][train_tail:validation_tail, :]))
+                        pointset.append(current_point)
+
+                        self.file_dict[counter_for_file] = file
+                        counter_for_file = counter_for_file + n_frame
+                    except:
+                        f.close()
 
         sorted_keys = np.array(sorted(self.file_dict.keys()))
 
@@ -121,23 +160,17 @@ class BigredDataSet():
         'singlePerson':[]
         }
 
-	
         for key in sorted_keys:
             tempname = self.file_dict[key]
             tempname = tempname[:-3]
             result_sheet[tempname] = []
         self.result_sheet = result_sheet
 
-
-        #pdb.set_trace()
-        print('Concatenating The All Data...')
         self.point_set = np.concatenate(pointset, axis=0)
         self.label_set = np.concatenate(lableset, axis=0)
-        print('Concatenating Complete...')
-
-
         if(including_ring == False):
             self.point_set = self.point_set[:, :, 0:num_channel]
+        
         else:
             temp = list(range(num_channel))
             temp.append(4)

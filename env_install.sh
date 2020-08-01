@@ -2,6 +2,7 @@ cd ../
 apt-get update
 apt-get install wget
 apt-get install zip
+apt-get install curl
 wget https://www.dropbox.com/s/hbnpnchf8mrzfz1/bigRed_h5_pointnet_sorted.tar.gz
 tar -xvzf bigRed_h5_pointnet_sorted.tar.gz
 rm -r bigRed_h5_pointnet_sorted.tar.gz

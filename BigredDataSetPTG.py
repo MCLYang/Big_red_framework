@@ -26,6 +26,7 @@ class BigredDataSetPTG(InMemoryDataset):
         self.num_channel = num_channel
         self.test_code = test_code
         self.file_dict = {}
+        self.result_sheet = []
         self.root = root
 
         if(is_train==True and is_validation==False and is_test==False):
@@ -48,7 +49,7 @@ class BigredDataSetPTG(InMemoryDataset):
             path = self.processed_paths[1]
         elif(is_train==False and is_validation==False and is_test==True):
             path = self.processed_paths[2]
-            self.file_dict = torch.load(os.path.join(root,'file_dict.pth'))
+            #self.file_dict = torch.load(os.path.join(root,'file_dict.pth'))
 
         self.data, self.slices = torch.load(path)
 
@@ -75,6 +76,7 @@ class BigredDataSetPTG(InMemoryDataset):
     def process(self):
         with open(self.raw_paths[0], 'r') as f:
             filenames = [x.split('/')[-1] for x in f.read().split('\n')[:-1]]
+            
             
         if(self.is_train==True or self.is_validation==True):
             xs_train, ys_train = [], []
@@ -153,11 +155,25 @@ class BigredDataSetPTG(InMemoryDataset):
                     xs_test += torch.from_numpy(a[:test_index,:,:]).to(torch.float).unbind(0)
                     ys_test += torch.from_numpy(f['label'][:test_index]).to(torch.long).unbind(0)
                     
+                    n_frame = np.array(f['xyz'][:test_index, :, :]).shape[0]
                     file_dict[counter_for_file] = filename
-                    n_frame = np.array(f['xyz'][validation_index:test_index, :, :]).shape[0]
                     counter_for_file = counter_for_file + n_frame
 
-
+            sorted_keys = np.array(sorted(file_dict.keys()))
+            result_sheet = {
+            'Complex':[],
+            'Medium':[],
+            'Simple':[],
+            'multiPeople':[],
+            'singlePerson':[]
+            }
+            for key in sorted_keys:
+                tempname = file_dict[key]
+                tempname = tempname[:-3]
+                result_sheet[tempname] = []
+            self.result_sheet = result_sheet
+            self.file_dict = file_dict
+            print(self.file_dict)
             torch.save(file_dict,os.path.join(self.root,'file_dict_test.pth'))
             test_data_list = []
             for i, (x, y) in enumerate(zip(xs_test, ys_test)):

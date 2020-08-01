@@ -1,0 +1,24 @@
+name,pointnet_4c
+validation_miou,0.736953597703426
+test_miou,0.7260373261162716
+Biou,0.9683406373807758
+Fiou,0.4837340170687694
+time_complexicity(f/s),128.12475080170478
+storage_complexicity,56746496.0
+number_channel,4
+Date,Tue Jul 28 02:30:06 2020
+Training-Validation-Testing,0.7-0.9-1
+test_loss,0.0
+OA,0.9689507613036925
+Complex,0.7524306542260986
+Medium,0.6309545393150644
+Simple,0.8134800973392668
+multiPeople,0.7260373261162716
+singlePerson,0
+Complex_lounge2elevation_multiPeople,0.6106709191203117
+Complex_office_multiPeople,0.8934851170179263
+Medium_corridor2_multiPeople,0.6378603453066811
+Medium_dinninghall_multiPeople,0.6240142042934894
+Simple_corridor1_multiPeople,0.5398953400160137
+Simple_Labonx1y1_multiPeople,0.9686475716420074
+para,
